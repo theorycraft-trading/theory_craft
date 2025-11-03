@@ -56,10 +56,34 @@ defmodule TheoryCraft.MarketSource.ProcessorStage do
 
   @typedoc """
   Options for starting a ProcessorStage.
+
+  Stage-specific options:
+  - `:subscribe_to` - List of producers to subscribe to (required)
+
+  GenStage/GenServer options:
+  - `:name` - Register the stage with a name
+  - `:timeout` - Timeout for GenServer.start_link
+  - `:debug` - Debug options
+  - `:spawn_opt` - Options for spawning the process
+  - `:hibernate_after` - Hibernate after inactivity
+
+  Subscription options:
+  - `:min_demand` - Minimum demand
+  - `:max_demand` - Maximum demand
+  - `:buffer_size` - Size of the buffer (default: 10000)
+  - `:buffer_keep` - Whether to keep `:first` or `:last` (default: `:last`)
   """
   @type start_option ::
           {:subscribe_to, [GenStage.stage() | {GenStage.stage(), keyword()}]}
           | {:name, atom()}
+          | {:timeout, timeout()}
+          | {:debug, Keyword.t()}
+          | {:spawn_opt, Process.spawn_opt()}
+          | {:hibernate_after, timeout()}
+          | {:min_demand, non_neg_integer()}
+          | {:max_demand, non_neg_integer()}
+          | {:buffer_size, non_neg_integer()}
+          | {:buffer_keep, :first | :last}
 
   ## Public API
 

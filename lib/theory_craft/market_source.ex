@@ -68,6 +68,29 @@ defmodule TheoryCraft.MarketSource do
       |> resample("m5")   # Creates "XAUUSD_m5"
       |> resample("h1")   # Creates "XAUUSD_h1"
 
+  ## Bar Aggregation
+
+  By default, resampling emits an event for every tick, even if the bar is incomplete.
+  To emit only completed bars, use either `aggregate_bars/2` or the `:only_bar` option:
+
+      # Single resample with only_bar: true
+      %MarketSource{}
+      |> add_data_ticks_from_csv("ticks.csv", name: "XAUUSD")
+      |> resample("m5", only_bar: true)
+      |> stream()
+
+      # Multiple resamples with aggregate_bars
+      %MarketSource{}
+      |> add_data_ticks_from_csv("ticks.csv", name: "XAUUSD")
+      |> resample("m5", name: "XAUUSD_m5")
+      |> resample("h1", name: "XAUUSD_h1")
+      |> aggregate_bars(["XAUUSD_m5", "XAUUSD_h1"])
+      |> stream()
+
+  **Important**: When using `:only_bar: true`, do NOT add more resample layers after it,
+  as downstream processors would receive incomplete data. For multiple resamples, use
+  `aggregate_bars/2` after all resampling operations.
+
   ## Limitations
 
   - Currently supports one data feed at a time
@@ -79,6 +102,7 @@ defmodule TheoryCraft.MarketSource do
 
   alias TheoryCraft.MarketSource.{
     AggregatorStage,
+    BarAggregatorStage,
     BroadcastStage,
     DataFeedStage,
     Indicator,
@@ -252,7 +276,17 @@ defmodule TheoryCraft.MarketSource do
     - `opts`: Optional parameters:
       - `:data` - Source data name (default: data feed name)
       - `:name` - Output data name (default: `"{data}_{timeframe}"`)
+      - `:only_bar` - If true, automatically adds aggregation to emit only completed bars (default: false)
       - Other processor options
+
+  ## Important Notes
+
+  When using `:only_bar: true`:
+  - Do NOT add more resample layers after this one, as they would receive incomplete data
+  - For multiple resamples, use `aggregate_bars/2` after all resamples instead
+  - **1-tick lag**: Bars are emitted when the next bar starts. In live trading, the last
+    bar of a session will not be emitted until the next session begins (see `aggregate_bars/2`
+    for details)
 
   ## Examples
 
@@ -261,6 +295,9 @@ defmodule TheoryCraft.MarketSource do
 
       # With default names (if data feed is named "XAUUSD")
       resample(market, "m5")  # data="XAUUSD", name="XAUUSD_m5"
+
+      # With only_bar to emit only completed bars
+      resample(market, "m5", only_bar: true)
 
   """
   @spec resample(t(), String.t(), Keyword.t()) :: t()
@@ -274,9 +311,11 @@ defmodule TheoryCraft.MarketSource do
       raise ArgumentError, "Invalid timeframe #{inspect(timeframe)}"
     end
 
+    {only_bar, opts_without_only_bar} = Keyword.pop(opts, :only_bar, false)
+
     # Deduce :data if not provided (from data feeds)
     data_name =
-      Keyword.get_lazy(opts, :data, fn ->
+      Keyword.get_lazy(opts_without_only_bar, :data, fn ->
         fetch_default_data_name(market)
       end)
 
@@ -287,13 +326,13 @@ defmodule TheoryCraft.MarketSource do
 
     # Generate :name if not provided
     output_name =
-      Keyword.get_lazy(opts, :name, fn ->
+      Keyword.get_lazy(opts_without_only_bar, :name, fn ->
         "#{data_name}_#{timeframe}"
       end)
 
     # Build processor options
     processor_opts =
-      opts
+      opts_without_only_bar
       |> Keyword.put(:timeframe, timeframe)
       |> Keyword.put(:data, data_name)
       |> Keyword.put(:name, output_name)
@@ -301,11 +340,18 @@ defmodule TheoryCraft.MarketSource do
     processor_spec = {TickToBarProcessor, processor_opts}
 
     # Add new layer with single processor and track new data stream
-    %MarketSource{
-      market
-      | processor_layers: processor_layers ++ [[processor_spec]],
-        data_streams: [output_name | data_streams]
-    }
+    resampled_market =
+      %MarketSource{
+        market
+        | processor_layers: processor_layers ++ [[processor_spec]],
+          data_streams: [output_name | data_streams]
+      }
+
+    if only_bar do
+      aggregate_bars(resampled_market, output_name)
+    else
+      resampled_market
+    end
   end
 
   @doc """
@@ -491,6 +537,87 @@ defmodule TheoryCraft.MarketSource do
   end
 
   @doc """
+  Aggregates bar events by only emitting completed bars.
+
+  This function adds a BarAggregatorStage that filters out intra-bar tick events,
+  emitting only when bars are complete (i.e., when `new_bar? = true`). This is useful
+  for avoiding redundant indicator calculations on incomplete bars.
+
+  ## Parameters
+
+    - `market`: The market source.
+    - `bar_names`: A single bar name (string) or list of bar names to aggregate.
+
+  ## Returns
+
+    - The updated market source with the aggregation layer added.
+
+  ## Behavior
+
+  The aggregator emits events when at least one of the tracked bars becomes complete
+  (OR logic). Each completed bar is emitted with its original `new_bar?` and
+  `new_market?` flags from the tick that created it.
+
+  ## Important Notes
+
+  - This should be used AFTER all resampling operations are complete
+  - Do NOT add more resample layers after aggregation, as the data would be incomplete
+  - For a single resample with aggregation, you can use `resample("m5", only_bar: true)` instead
+
+  ## 1-Tick Lag Warning
+
+  Bar aggregation introduces a **1-tick lag** in emissions. A bar is only emitted when
+  the next bar starts. This means:
+
+  - The last bar before stream end will only be emitted when the stream terminates
+  - **In live/real-time trading**: The last bar of a session (e.g., daily close) will
+    NOT be emitted until the next session starts (e.g., next day's market open)
+  - For backtesting, this is usually not an issue as streams end naturally
+  - For live trading, you may need a timeout mechanism or manual flush to access the
+    latest incomplete bar immediately
+
+  ## Examples
+
+      # Aggregate a single bar
+      market
+      |> MarketSource.resample("m5", name: "data_m5")
+      |> MarketSource.aggregate_bars("data_m5")
+
+      # Aggregate multiple bars
+      market
+      |> MarketSource.resample("m5", name: "data_m5")
+      |> MarketSource.resample("h1", name: "data_h1")
+      |> MarketSource.aggregate_bars(["data_m5", "data_h1"])
+
+      # With indicators after aggregation
+      market
+      |> MarketSource.resample("m5", name: "data_m5")
+      |> MarketSource.aggregate_bars("data_m5")
+      |> MarketSource.add_indicator(TA.sma(data_m5[:close], 20))
+
+  """
+  @spec aggregate_bars(t(), String.t() | [String.t()]) :: t()
+  def aggregate_bars(%MarketSource{} = market, bar_name_or_bar_names) do
+    %MarketSource{data_streams: data_streams, processor_layers: processor_layers} = market
+
+    bar_names = List.wrap(bar_name_or_bar_names)
+
+    if bar_names == [] do
+      raise ArgumentError, "bar_names cannot be empty"
+    end
+
+    for bar_name <- bar_names do
+      if bar_name not in data_streams do
+        raise ArgumentError, "Data stream #{inspect(bar_name)} not found"
+      end
+    end
+
+    aggregator_spec = {BarAggregatorStage, [bar_names: bar_names]}
+
+    %MarketSource{market | processor_layers: processor_layers ++ [[aggregator_spec]]}
+  end
+
+  @doc """
   Adds a trading strategy to the market source.
 
   Multiple strategies can be added to the market source. Each strategy can have its own
@@ -644,6 +771,16 @@ defmodule TheoryCraft.MarketSource do
   end
 
   # Materialize a single processor layer
+  defp materialize_layer([{BarAggregatorStage, opts}], upstream_pid) do
+    # BarAggregatorStage - start with bar_names option
+    {:ok, aggregator_pid} =
+      BarAggregatorStage.start_link(
+        Keyword.merge(opts, subscribe_to: [{upstream_pid, cancel: :transient}])
+      )
+
+    aggregator_pid
+  end
+
   defp materialize_layer([processor_spec], upstream_pid) do
     # Single processor - start ProcessorStage with subscription
     {:ok, processor_pid} =

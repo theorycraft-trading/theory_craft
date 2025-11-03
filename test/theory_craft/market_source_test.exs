@@ -491,6 +491,237 @@ defmodule TheoryCraft.MarketSourceTest do
     end
   end
 
+  describe "aggregate_bars" do
+    test "aggregates single bar with string name", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.aggregate_bars("xauusd_m5")
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 2 events (one per completed m5 bar)
+      # First 3 ticks = first bar at 00:00 (emitted when second bar starts)
+      # Last 2 ticks = second bar at 00:05 (emitted when stream terminates)
+      assert length(events) == 2
+
+      assert %MarketEvent{data: %{"xauusd_m5" => bar1}} = Enum.at(events, 0)
+      assert %Bar{time: ~U[2024-01-01 00:00:00.000000Z]} = bar1
+
+      assert %MarketEvent{data: %{"xauusd_m5" => bar2}} = Enum.at(events, 1)
+      assert %Bar{time: ~U[2024-01-01 00:05:00.000000Z]} = bar2
+    end
+
+    test "aggregates single bar with list of names", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.aggregate_bars(["xauusd_m5"])
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      assert length(events) == 2
+    end
+
+    test "verifies new_bar? appears at correct intervals for m1, m3, and m5" do
+      # Create feed with 6 consecutive ticks (0, 1, 2, 3, 4, 5 minutes)
+      base_time = ~U[2024-01-01 00:00:00.000000Z]
+
+      ticks =
+        Enum.map(0..5, fn i ->
+          %Tick{
+            time: DateTime.add(base_time, i, :minute),
+            ask: 2500.0 + i,
+            bid: 2499.0 + i,
+            ask_volume: 100.0,
+            bid_volume: 150.0
+          }
+        end)
+
+      feed = MemoryDataFeed.new(ticks)
+
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m1", name: "xauusd_m1")
+        |> MarketSource.resample("m3", name: "xauusd_m3")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.aggregate_bars(["xauusd_m1", "xauusd_m3", "xauusd_m5"])
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 6 events total
+      assert length(events) == 6
+
+      # Event 0: First emit - all bars are new
+      assert %MarketEvent{
+               data: %{"xauusd_m1" => m1, "xauusd_m3" => m3, "xauusd_m5" => m5}
+             } = Enum.at(events, 0)
+
+      assert m1.new_bar? == true
+      assert m3.new_bar? == true
+      assert m5.new_bar? == true
+      assert m1.time == DateTime.add(base_time, 0, :minute)
+      assert m3.time == DateTime.add(base_time, 0, :minute)
+      assert m5.time == DateTime.add(base_time, 0, :minute)
+
+      # Event 1: m1 new, m3 and m5 continue same bar
+      assert %MarketEvent{
+               data: %{"xauusd_m1" => m1, "xauusd_m3" => m3, "xauusd_m5" => m5}
+             } = Enum.at(events, 1)
+
+      assert m1.new_bar? == true
+      assert m3.new_bar? == false
+      assert m5.new_bar? == false
+      assert m1.time == DateTime.add(base_time, 1, :minute)
+      assert m3.time == DateTime.add(base_time, 0, :minute)
+      assert m5.time == DateTime.add(base_time, 0, :minute)
+
+      # Event 2: m1 new, m3 and m5 still continue same bar
+      assert %MarketEvent{
+               data: %{"xauusd_m1" => m1, "xauusd_m3" => m3, "xauusd_m5" => m5}
+             } = Enum.at(events, 2)
+
+      assert m1.new_bar? == true
+      assert m3.new_bar? == false
+      assert m5.new_bar? == false
+      assert m1.time == DateTime.add(base_time, 2, :minute)
+      assert m3.time == DateTime.add(base_time, 0, :minute)
+      assert m5.time == DateTime.add(base_time, 0, :minute)
+
+      # Event 3: m1 and m3 new (m3 time changes to 00:03), m5 continues
+      assert %MarketEvent{
+               data: %{"xauusd_m1" => m1, "xauusd_m3" => m3, "xauusd_m5" => m5}
+             } = Enum.at(events, 3)
+
+      assert m1.new_bar? == true
+      assert m3.new_bar? == true
+      assert m5.new_bar? == false
+      assert m1.time == DateTime.add(base_time, 3, :minute)
+      assert m3.time == DateTime.add(base_time, 3, :minute)
+      assert m5.time == DateTime.add(base_time, 0, :minute)
+
+      # Event 4: m1 new, m3 and m5 continue
+      assert %MarketEvent{
+               data: %{"xauusd_m1" => m1, "xauusd_m3" => m3, "xauusd_m5" => m5}
+             } = Enum.at(events, 4)
+
+      assert m1.new_bar? == true
+      assert m3.new_bar? == false
+      assert m5.new_bar? == false
+      assert m1.time == DateTime.add(base_time, 4, :minute)
+      assert m3.time == DateTime.add(base_time, 3, :minute)
+      assert m5.time == DateTime.add(base_time, 0, :minute)
+
+      # Event 5: m1 and m5 new (m5 time changes to 00:05), m3 continues
+      assert %MarketEvent{
+               data: %{"xauusd_m1" => m1, "xauusd_m3" => m3, "xauusd_m5" => m5}
+             } = Enum.at(events, 5)
+
+      assert m1.new_bar? == true
+      assert m3.new_bar? == false
+      assert m5.new_bar? == true
+      assert m1.time == DateTime.add(base_time, 5, :minute)
+      assert m3.time == DateTime.add(base_time, 3, :minute)
+      assert m5.time == DateTime.add(base_time, 5, :minute)
+    end
+
+    test "raises error when bar_names is empty", %{feed: feed} do
+      assert_raise ArgumentError, ~r/bar_names cannot be empty/, fn ->
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.aggregate_bars([])
+      end
+    end
+
+    test "raises error when bar_name not found", %{feed: feed} do
+      assert_raise ArgumentError, ~r/Data stream "nonexistent" not found/, fn ->
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.aggregate_bars("nonexistent")
+      end
+    end
+
+    test "works with indicators after aggregation", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.aggregate_bars("xauusd_m5")
+        |> MarketSource.add_indicator(SimpleIndicator,
+          data: "xauusd_m5",
+          name: "test_ind",
+          constant: 42.0
+        )
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 2 events (both bars emitted) with bar and indicator
+      assert length(events) == 2
+
+      for event <- events do
+        assert %MarketEvent{data: %{"xauusd_m5" => _bar, "test_ind" => ind}} = event
+        assert %IndicatorValue{value: 42.0} = ind
+      end
+    end
+  end
+
+  describe "resample with only_bar: true" do
+    test "automatically aggregates bars", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5", only_bar: true)
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 2 events (both completed bars)
+      assert length(events) == 2
+
+      assert %MarketEvent{data: %{"xauusd_m5" => bar1}} = Enum.at(events, 0)
+      assert %Bar{time: ~U[2024-01-01 00:00:00.000000Z]} = bar1
+
+      assert %MarketEvent{data: %{"xauusd_m5" => bar2}} = Enum.at(events, 1)
+      assert %Bar{time: ~U[2024-01-01 00:05:00.000000Z]} = bar2
+    end
+
+    test "works with default names", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", only_bar: true)
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should auto-generate name "xauusd_m5"
+      assert length(events) == 2
+
+      assert %MarketEvent{data: %{"xauusd_m5" => _bar}} = Enum.at(events, 0)
+      assert %MarketEvent{data: %{"xauusd_m5" => _bar}} = Enum.at(events, 1)
+    end
+
+    test "works with indicators", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", only_bar: true)
+        |> MarketSource.add_indicator(SimpleIndicator, constant: 10.0, name: "test_ind")
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      assert length(events) == 2
+
+      for event <- events do
+        assert %MarketEvent{data: %{"xauusd_m5" => _bar, "test_ind" => ind}} = event
+        assert %IndicatorValue{value: 10.0} = ind
+      end
+    end
+  end
+
   ## Private helper functions
 
   defp build_test_ticks() do

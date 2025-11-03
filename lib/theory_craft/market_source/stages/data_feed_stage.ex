@@ -64,9 +64,32 @@ defmodule TheoryCraft.MarketSource.DataFeedStage do
 
   @typedoc """
   Options for starting a DataFeedStage.
+
+  Stage-specific options:
+  - `:name` - Name for the data stream
+  - `:stage_name` - Optional name for the GenStage process
+
+  GenStage/GenServer options:
+  - `:timeout` - Timeout for GenServer.start_link
+  - `:debug` - Debug options
+  - `:spawn_opt` - Options for spawning the process
+  - `:hibernate_after` - Hibernate after inactivity
+
+  Producer options:
+  - `:max_demand` - Maximum demand from consumers
+  - `:buffer_size` - Size of the buffer (default: 10000)
+  - `:buffer_keep` - Whether to keep `:first` or `:last` (default: `:last`)
   """
   @type start_option ::
-          {:name, String.t()} | {:stage_name, atom()} | {:max_demand, pos_integer()}
+          {:name, String.t()}
+          | {:stage_name, atom()}
+          | {:timeout, timeout()}
+          | {:debug, Keyword.t()}
+          | {:spawn_opt, Process.spawn_opt()}
+          | {:hibernate_after, timeout()}
+          | {:max_demand, pos_integer()}
+          | {:buffer_size, non_neg_integer()}
+          | {:buffer_keep, :first | :last}
 
   ## Public API
 
