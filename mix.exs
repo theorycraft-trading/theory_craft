@@ -5,7 +5,7 @@ defmodule TheoryCraft.MixProject do
     [
       app: :theory_craft,
       version: "0.1.0",
-      elixir: "~> 1.18",
+      elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       preferred_cli_env: [ci: :test],

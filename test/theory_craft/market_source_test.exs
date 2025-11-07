@@ -8,10 +8,12 @@ defmodule TheoryCraft.MarketSourceTest do
     IndicatorValue,
     MarketEvent,
     MemoryDataFeed,
-    Tick
+    Tick,
+    TickToBarProcessor
   }
 
   alias TheoryCraft.TestIndicators.{SimpleIndicator, SMAIndicator}
+  alias TheoryCraft.TestProcessors.SimpleProcessor
 
   @moduletag :capture_log
 
@@ -169,6 +171,83 @@ defmodule TheoryCraft.MarketSourceTest do
       end
     end
 
+    test "add_processor/3 creates single-processor layer", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.add_processor(TickToBarProcessor,
+          data: "xauusd",
+          timeframe: "m5",
+          name: "xauusd_m5"
+        )
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 5 events (one per tick)
+      assert length(events) == 5
+
+      for event <- events do
+        assert %MarketEvent{data: %{"xauusd" => tick}} = event
+        assert %MarketEvent{data: %{"xauusd_m5" => m5_bar}} = event
+        assert %Tick{} = tick
+        assert %Bar{} = m5_bar
+      end
+    end
+
+    test "add_processor_layer/3 creates parallel processors", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.add_processor_layer([
+          {TickToBarProcessor, [data: "xauusd", timeframe: "m5", name: "xauusd_m5"]},
+          {TickToBarProcessor, [data: "xauusd", timeframe: "h1", name: "xauusd_h1"]}
+        ])
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 5 events (one per tick)
+      assert length(events) == 5
+
+      for event <- events do
+        assert %MarketEvent{data: %{"xauusd" => tick}} = event
+        assert %MarketEvent{data: %{"xauusd_m5" => m5_bar}} = event
+        assert %MarketEvent{data: %{"xauusd_h1" => h1_bar}} = event
+        assert %Tick{} = tick
+        assert %Bar{} = m5_bar
+        assert %Bar{} = h1_bar
+      end
+    end
+
+    test "add_processor/3 can be chained sequentially", %{feed: feed} do
+      events =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.add_processor(TickToBarProcessor,
+          data: "xauusd",
+          timeframe: "m5",
+          name: "xauusd_m5"
+        )
+        |> MarketSource.add_processor(SimpleProcessor,
+          data: "xauusd_m5",
+          name: "processed",
+          constant: 42.0
+        )
+        |> MarketSource.stream()
+        |> Enum.to_list()
+
+      # Should have 5 events (one per tick)
+      assert length(events) == 5
+
+      for event <- events do
+        assert %MarketEvent{data: %{"xauusd" => tick}} = event
+        assert %MarketEvent{data: %{"xauusd_m5" => m5_bar}} = event
+        assert %MarketEvent{data: %{"processed" => processed_value}} = event
+        assert %Tick{} = tick
+        assert %Bar{} = m5_bar
+        assert processed_value == 42.0
+      end
+    end
+
     test "add_strategy supports multiple strategies with options", %{feed: feed} do
       market =
         %MarketSource{}
@@ -207,6 +286,42 @@ defmodule TheoryCraft.MarketSourceTest do
       assert_raise ArgumentError, ~r/indicator_specs cannot be empty/, fn ->
         %MarketSource{}
         |> MarketSource.add_indicators_layer([])
+      end
+    end
+
+    test "raises error for empty processor list in add_processor_layer" do
+      assert_raise ArgumentError, ~r/processor_specs cannot be empty/, fn ->
+        %MarketSource{}
+        |> MarketSource.add_processor_layer([])
+      end
+    end
+
+    test "raises error when processor :name is missing in add_processor" do
+      assert_raise KeyError, ~r/key :name not found/, fn ->
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, feed: :dummy, name: "xauusd")
+        |> MarketSource.add_processor(TickToBarProcessor, timeframe: "m5")
+      end
+    end
+
+    test "raises error when duplicate name in add_processor_layer" do
+      assert_raise ArgumentError, ~r/already taken/, fn ->
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, feed: :dummy, name: "xauusd")
+        |> MarketSource.add_processor_layer([
+          {TickToBarProcessor, [timeframe: "m5", name: "duplicate"]},
+          {TickToBarProcessor, [timeframe: "h1", name: "duplicate"]}
+        ])
+      end
+    end
+
+    test "raises error when processor name conflicts with existing data stream" do
+      feed = MemoryDataFeed.new(build_test_ticks())
+
+      assert_raise ArgumentError, ~r/Data stream name "xauusd" is already taken/, fn ->
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.add_processor(TickToBarProcessor, timeframe: "m5", name: "xauusd")
       end
     end
   end

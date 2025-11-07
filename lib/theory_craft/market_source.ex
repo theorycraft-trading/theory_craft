@@ -355,6 +355,49 @@ defmodule TheoryCraft.MarketSource do
   end
 
   @doc """
+  Adds a single indicator/processor as a new layer.
+
+  This is a convenience function that creates a layer with a single processor.
+  Equivalent to `add_indicators_layer(market, [{module, opts}])`.
+
+  ## Default Names
+
+  - If `:data` is not provided, uses the name of the single data feed
+  - If `:name` is not provided, generates it from the module name in snake_case
+    (e.g., `TheoryCraft.Indicators.SMA` → `"sma"`)
+  - If the generated name already exists, adds a numeric suffix (`"sma_1"`, `"sma_2"`, etc.)
+
+  ## Parameters
+
+    - `market`: The market source.
+    - `processor_module`: The processor/indicator module.
+    - `opts`: Options for the processor.
+
+  ## Examples
+
+      require TheoryCraftTA.TA, as: TA
+
+      # With explicit name
+      market
+      |> add_indicator(TA.sma(volume[:value], 14, name: "sma_14"))
+
+      # With default name (auto-generated from indicator type)
+      market
+      |> add_indicator(TA.sma(eurusd_m5[:close], 14))
+
+      # Multiple indicators with different periods
+      market
+      |> add_indicator(TA.sma(eurusd_m5[:close], 14))
+      |> add_indicator(TA.sma(eurusd_m5[:close], 20))
+      |> add_indicator(TA.sma(eurusd_m5[:close], 50))
+
+  """
+  @spec add_indicator(t(), module(), Keyword.t()) :: t()
+  def add_indicator(%MarketSource{} = market, processor_module, opts) do
+    add_indicators_layer(market, [{processor_module, opts}])
+  end
+
+  @doc """
   Adds a layer with multiple processors running in parallel.
 
   This creates a layer where multiple processors (indicators) process events
@@ -372,7 +415,6 @@ defmodule TheoryCraft.MarketSource do
 
     - `market`: The market source.
     - `processor_specs`: List of `{module, opts}` tuples for each processor.
-    - `opts`: Optional parameters (e.g., `:concurrency` - currently unused).
 
   ## Examples
 
@@ -393,8 +435,8 @@ defmodule TheoryCraft.MarketSource do
       ])
 
   """
-  @spec add_indicators_layer(t(), [Indicator.spec()], Keyword.t()) :: t()
-  def add_indicators_layer(%MarketSource{} = market, indicator_specs, _opts \\ [])
+  @spec add_indicators_layer(t(), [Indicator.spec()]) :: t()
+  def add_indicators_layer(%MarketSource{} = market, indicator_specs)
       when is_list(indicator_specs) do
     %MarketSource{data_streams: data_streams, processor_layers: processor_layers} = market
 
@@ -454,85 +496,100 @@ defmodule TheoryCraft.MarketSource do
   end
 
   @doc """
-  Adds a single indicator/processor as a new layer.
+  Adds a single processor as a new layer.
 
   This is a convenience function that creates a layer with a single processor.
-  Equivalent to `add_indicators_layer(market, [{module, opts}])`.
+  Equivalent to `add_processor_layer(market, [{module, opts}])`.
 
-  ## Default Names
-
-  - If `:data` is not provided, uses the name of the single data feed
-  - If `:name` is not provided, generates it from the module name in snake_case
-    (e.g., `TheoryCraft.Indicators.SMA` → `"sma"`)
-  - If the generated name already exists, adds a numeric suffix (`"sma_1"`, `"sma_2"`, etc.)
+  Unlike `add_indicator/3`, this function accepts a raw processor spec without
+  wrapping it in `IndicatorProcessor`. Use this for custom processors that
+  already implement the `Processor` behaviour.
 
   ## Parameters
 
     - `market`: The market source.
-    - `processor_module`: The processor/indicator module.
-    - `opts`: Options for the processor.
+    - `processor_module`: The processor module.
+    - `opts`: Options for the processor (must include `:name`).
 
   ## Examples
 
-      require TheoryCraftTA.TA, as: TA
-
-      # With explicit name
+      # Add a single processor
       market
-      |> add_indicator(TA.sma(volume[:value], 14, name: "sma_14"))
+      |> add_processor(TickToBarProcessor, timeframe: "m5", name: "xauusd_m5")
 
-      # With default name (auto-generated from indicator type)
+      # Chain multiple processors
       market
-      |> add_indicator(TA.sma(eurusd_m5[:close], 14))
-
-      # Multiple indicators with different periods
-      market
-      |> add_indicator(TA.sma(eurusd_m5[:close], 14))
-      |> add_indicator(TA.sma(eurusd_m5[:close], 20))
-      |> add_indicator(TA.sma(eurusd_m5[:close], 50))
+      |> add_processor(TickToBarProcessor, timeframe: "m5", name: "xauusd_m5")
+      |> add_processor(MyCustomProcessor, some_option: 123, name: "custom")
 
   """
-  @spec add_indicator(t(), module(), Keyword.t()) :: t()
-  def add_indicator(%MarketSource{} = market, processor_module, opts) do
+  @spec add_processor(t(), module(), Keyword.t()) :: t()
+  def add_processor(%MarketSource{} = market, processor_module, opts) do
+    add_processor_layer(market, [{processor_module, opts}])
+  end
+
+  @doc """
+  Adds a layer with multiple processors running in parallel.
+
+  This creates a layer where multiple processors process events simultaneously.
+  Use this when you want to add custom processors.
+
+  ## Parameters
+
+    - `market`: The market source.
+    - `processor_specs`: List of `{module, opts}` tuples for each processor.
+
+  ## Examples
+
+      # Add multiple processors in parallel
+      market
+      |> add_processor_layer([
+        {TickToBarProcessor, [timeframe: "m5", name: "xauusd_m5"]},
+        {TickToBarProcessor, [timeframe: "h1", name: "xauusd_h1"]}
+      ])
+
+      # Add custom processors
+      market
+      |> add_processor_layer([
+        {MyCustomProcessor, [some_option: 123, name: "custom1"]},
+        {AnotherProcessor, [name: "custom2"]}
+      ])
+
+  """
+  @spec add_processor_layer(t(), [Processor.spec()]) :: t()
+  def add_processor_layer(%MarketSource{} = market, processor_specs)
+      when is_list(processor_specs) do
     %MarketSource{data_streams: data_streams, processor_layers: processor_layers} = market
 
-    # Deduce :data if not provided
-    data_name =
-      Keyword.get_lazy(opts, :data, fn ->
-        fetch_default_data_name(market)
-      end)
-
-    # Validate data source
-    if data_name not in data_streams do
-      raise ArgumentError, "Data stream #{inspect(data_name)} not found"
+    if processor_specs == [] do
+      raise ArgumentError, "processor_specs cannot be empty"
     end
 
-    # Generate :name if not provided
-    output_name =
-      Keyword.get_lazy(opts, :name, fn ->
-        generate_indicator_name(processor_module, data_streams)
+    # Process each processor spec: normalize and validate
+    {normalized_specs, new_data_names} =
+      Enum.map_reduce(processor_specs, [], fn processor_spec, generated_names ->
+        {module, processor_opts} = Utils.normalize_spec(processor_spec)
+
+        # Extract output name from opts (required for processors)
+        output_name = Keyword.fetch!(processor_opts, :name)
+
+        # Validate that the name is not already taken
+        all_taken_names = data_streams ++ generated_names
+
+        if output_name in all_taken_names do
+          raise ArgumentError,
+                "Data stream name #{inspect(output_name)} is already taken. " <>
+                  "Please provide a unique :name option."
+        end
+
+        {{module, processor_opts}, generated_names ++ [output_name]}
       end)
 
-    # Validate that the name is not already taken
-    if output_name in data_streams do
-      raise ArgumentError,
-            "Data stream name #{inspect(output_name)} is already taken. " <>
-              "Please provide a unique :name option."
-    end
-
-    # Add :data to opts if not present
-    enhanced_opts =
-      opts
-      |> Keyword.put_new(:data, data_name)
-      |> Keyword.put_new(:name, output_name)
-
-    # Wrap indicator in IndicatorProcessor
-    processor_spec = {IndicatorProcessor, Keyword.put(enhanced_opts, :module, processor_module)}
-
-    # Add new layer with single processor and track new data stream
+    # Add new layer with multiple processors and track new data streams
     %MarketSource{
       market
-      | processor_layers: processor_layers ++ [[processor_spec]],
-        data_streams: [output_name | data_streams]
+      | processor_layers: processor_layers ++ [normalized_specs],
+        data_streams: new_data_names ++ data_streams
     }
   end
 
@@ -702,7 +759,7 @@ defmodule TheoryCraft.MarketSource do
 
   # Generates a unique indicator name based on the module
   # Returns a name in snake_case format, with a numeric suffix if there are collisions
-  defp generate_indicator_name(module, existing_names, already_generated \\ []) do
+  defp generate_indicator_name(module, existing_names, already_generated) do
     # Extract module name and convert to snake_case
     base_name =
       module
