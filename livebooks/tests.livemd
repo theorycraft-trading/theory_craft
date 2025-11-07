@@ -101,6 +101,14 @@ area_options = %{
   bottom_color: "#683ab6"
 }
 
+market_source =
+  %MarketSource{}
+  |> MarketSource.add_data(csv_stream, name: "data")
+  |> MarketSource.resample("m5", name: "data_m5")
+  |> MarketSource.add_indicators_layer([
+    TA.sma(data_m5[:close], 8, name: "sma_8"),
+    TA.ema(data_m5[:close], 13, name: "ema_13")
+  ])
 
 # Create LiveChart
 chart =
@@ -108,7 +116,7 @@ chart =
   |> Chart.add_series("data_m5", :candlestick, options: candlestick_options)
   |> Chart.add_series("sma_8", :line, options: %{color: "teal"})
   |> Chart.add_series("ema_13", :area, pane: 1, options: area_options)
-  |> LiveChart.render()
+  |> LiveChart.render(debug: true, batch_size: 1000)
 
 # Render
 Kino.render(chart)

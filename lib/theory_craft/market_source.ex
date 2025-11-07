@@ -757,8 +757,48 @@ defmodule TheoryCraft.MarketSource do
       |> Enum.take(100)
 
   """
-  @spec stream(t(), Keyword.t()) :: Enumerable.t(MarketEvent.t())
-  def stream(%MarketSource{} = market, _opts \\ []) do
+  @spec stream(t()) :: Enumerable.t(MarketEvent.t())
+  def stream(%MarketSource{} = market) do
+    {final_stage_pid, data_feed_pid} = into_stages(market)
+    GenStage.stream([{final_stage_pid, cancel: :transient}], producers: [data_feed_pid])
+  end
+
+  @doc """
+  Materializes the market source into a GenStage pipeline and returns the stage PIDs.
+
+  This function is similar to `stream/2` but returns the raw GenStage PIDs instead of
+  creating a stream. This is useful when you want to manually connect consumers to the
+  pipeline or integrate it with other GenStage pipelines.
+
+  ## Parameters
+
+    - `market`: The market source.
+
+  ## Returns
+
+  A tuple `{final_stage_pid, data_feed_pid}` where:
+    - `final_stage_pid` - The PID of the last stage in the pipeline (producer-consumer or producer)
+    - `data_feed_pid` - The PID of the data feed stage (producer)
+
+  ## Examples
+
+      # Materialize the pipeline
+      {final_stage, data_feed} = MarketSource.into_stages(market)
+
+      # Manually subscribe a consumer
+      {:ok, consumer} = MyConsumer.start_link(
+        subscribe_to: [{final_stage, cancel: :transient}]
+      )
+
+      # Or use with GenStage.stream/2
+      stream = GenStage.stream(
+        [{final_stage, cancel: :transient}],
+        producers: [data_feed]
+      )
+
+  """
+  @spec into_stages(t()) :: {GenStage.stage(), GenStage.stage()}
+  def into_stages(%MarketSource{} = market) do
     %MarketSource{data_feeds: data_feeds} = market
 
     if data_feeds == [] do
@@ -766,11 +806,7 @@ defmodule TheoryCraft.MarketSource do
             "No data feed configured. Use add_data/3 or add_data_ticks_from_csv/3 first."
     end
 
-    # Materialize the GenStage pipeline
-    {data_feed_pid, final_stage_pid} = materialize_pipeline(market)
-
-    # Return GenStage stream with producers specified
-    GenStage.stream([{final_stage_pid, cancel: :transient}], producers: [data_feed_pid])
+    materialize_pipeline(market)
   end
 
   ## Private functions
@@ -845,7 +881,7 @@ defmodule TheoryCraft.MarketSource do
         materialize_layer(layer, upstream_pid)
       end)
 
-    {data_feed_pid, final_stage_pid}
+    {final_stage_pid, data_feed_pid}
   end
 
   # Materialize a single processor layer

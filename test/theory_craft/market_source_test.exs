@@ -865,6 +865,75 @@ defmodule TheoryCraft.MarketSourceTest do
     end
   end
 
+  describe "into_stages/1" do
+    test "returns valid stage PIDs", %{feed: feed} do
+      market =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+
+      {final_stage, data_feed} = MarketSource.into_stages(market)
+
+      assert is_pid(final_stage)
+      assert is_pid(data_feed)
+      assert Process.alive?(final_stage)
+      assert Process.alive?(data_feed)
+    end
+
+    test "allows manual consumer subscription", %{feed: feed} do
+      market =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+
+      {final_stage, data_feed} = MarketSource.into_stages(market)
+
+      # Manually create a stream using GenStage.stream
+      events =
+        GenStage.stream([{final_stage, cancel: :transient}], producers: [data_feed])
+        |> Enum.to_list()
+
+      # Should have 5 events (one per tick)
+      assert length(events) == 5
+
+      for event <- events do
+        assert %MarketEvent{data: %{"xauusd" => _tick, "xauusd_m5" => _bar}} = event
+      end
+    end
+
+    test "works with complex pipelines", %{feed: feed} do
+      market =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
+        |> MarketSource.resample("m5", name: "xauusd_m5")
+        |> MarketSource.add_indicator(SimpleIndicator, constant: 42.0, name: "test_ind")
+
+      {final_stage, data_feed} = MarketSource.into_stages(market)
+
+      events =
+        GenStage.stream([{final_stage, cancel: :transient}], producers: [data_feed])
+        |> Enum.to_list()
+
+      assert length(events) == 5
+
+      for event <- events do
+        assert %MarketEvent{
+                 data: %{"xauusd" => _tick, "xauusd_m5" => _bar, "test_ind" => ind}
+               } = event
+
+        assert %IndicatorValue{value: 42.0} = ind
+      end
+    end
+
+    test "raises error when no data feed configured" do
+      market = %MarketSource{}
+
+      assert_raise ArgumentError,
+                   "No data feed configured. Use add_data/3 or add_data_ticks_from_csv/3 first.",
+                   fn -> MarketSource.into_stages(market) end
+    end
+  end
+
   ## Private helper functions
 
   defp build_test_ticks() do
