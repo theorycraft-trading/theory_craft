@@ -115,7 +115,7 @@ Kino.render(chart)
 
 # Update
 for event <- MarketSource.stream(market_source) do
-  Process.sleep(100)
+  # Process.sleep(100)
   LiveChart.update(chart, event)
 end
 ```
