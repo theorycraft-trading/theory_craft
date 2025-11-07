@@ -327,17 +327,45 @@ defmodule TheoryCraft.MarketSourceTest do
   end
 
   describe "default names and data tracking" do
-    test "add_data with module uses numeric index when name not provided", %{feed: feed} do
+    test "add_data with module uses \"data\" as default name when not provided", %{feed: feed} do
       market =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed)
 
-      # Default name should be 0 (first feed)
-      assert market.data_streams == [0]
-      assert [{0, {MemoryDataFeed, opts}}] = market.data_feeds
+      # Default name should be "data"
+      assert market.data_streams == ["data"]
+      assert [{"data", {MemoryDataFeed, opts}}] = market.data_feeds
       # :name is NOT in opts (it's stored as the keyword list key)
       assert Keyword.fetch!(opts, :from) == feed
       refute Keyword.has_key?(opts, :name)
+    end
+
+    test "data_streams/1 returns streams in insertion order", %{feed: feed} do
+      market =
+        %MarketSource{}
+        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "XAUUSD")
+        |> MarketSource.resample("m5", name: "XAUUSD_m5")
+        |> MarketSource.resample("h1", name: "XAUUSD_h1")
+        |> MarketSource.add_processor_layer([
+          {TheoryCraft.TestProcessors.SimpleProcessor, name: "proc1", data: "XAUUSD_m5"},
+          {TheoryCraft.TestProcessors.SimpleProcessor, name: "proc2", data: "XAUUSD_m5"},
+          {TheoryCraft.TestProcessors.SimpleProcessor, name: "proc3", data: "XAUUSD_h1"}
+        ])
+        |> MarketSource.add_processor(TheoryCraft.TestProcessors.SimpleProcessor,
+          name: "proc4",
+          data: "XAUUSD_m5"
+        )
+
+      # data_streams/1 should return streams in the order they were added
+      assert MarketSource.data_streams(market) == [
+               "XAUUSD",
+               "XAUUSD_m5",
+               "XAUUSD_h1",
+               "proc1",
+               "proc2",
+               "proc3",
+               "proc4"
+             ]
     end
 
     test "add_data with enumerable (list)", %{ticks: ticks} do

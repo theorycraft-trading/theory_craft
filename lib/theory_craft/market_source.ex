@@ -41,11 +41,10 @@ defmodule TheoryCraft.MarketSource do
 
   ### Data Feed Names
 
-  When `add_data/3` is called without a `:name` option, the name defaults to a numeric
-  index (0 for the first feed, 1 for the second, etc.):
+  When `add_data/3` is called without a `:name` option, the name defaults to `"data"`:
 
       add_data(market, MemoryDataFeed, from: feed)
-      # name defaults to 0
+      # name defaults to "data"
 
   ### Processor Names
 
@@ -129,7 +128,7 @@ defmodule TheoryCraft.MarketSource do
 
   @type t :: %MarketSource{
           data_feeds: Keyword.t({module(), Keyword.t()}),
-          data_streams: [String.t() | non_neg_integer()],
+          data_streams: [String.t()],
           processor_layers: [[Processor.spec()]],
           strategies: [strategy_spec()]
         }
@@ -161,8 +160,7 @@ defmodule TheoryCraft.MarketSource do
   @doc """
   Adds a data source to the market source.
 
-  The `:name` option is optional. If not provided, the name defaults to the number
-  of existing data feeds (0 for the first feed, 1 for the second, etc.).
+  The `:name` option is optional. If not provided, the name defaults to `"data"`.
 
   Currently, only one data feed is supported. An error is raised if you try to add
   a second data feed.
@@ -174,7 +172,7 @@ defmodule TheoryCraft.MarketSource do
       - A module implementing the `TheoryCraft.DataFeed` behaviour
       - An `Enumerable` (list, stream, etc.) containing `Tick` or `Bar` structs
     - `opts`: Options including:
-      - `:name` - Optional name for this data stream (default: numeric index)
+      - `:name` - Optional name for this data stream (default: `"data"`)
       - For DataFeed modules: other options are passed to the DataFeed module
       - For enumerables: `:name` is the only relevant option
 
@@ -183,7 +181,7 @@ defmodule TheoryCraft.MarketSource do
       # With DataFeed module and explicit name
       add_data(market, MemoryDataFeed, from: feed, name: "XAUUSD")
 
-      # With DataFeed module and default name (will be 0)
+      # With DataFeed module and default name (will be "data")
       add_data(market, MemoryDataFeed, from: feed)
 
       # With enumerable (stream or list)
@@ -214,8 +212,8 @@ defmodule TheoryCraft.MarketSource do
     # Normalize the data feed spec
     {data_feed_module, data_feed_opts} = Utils.normalize_spec(data_feed_spec)
 
-    # Default name = number of existing feeds
-    name = Keyword.get_lazy(opts, :name, fn -> length(data_feeds) end)
+    # Default name = "data"
+    name = Keyword.get(opts, :name, "data")
     # Remove :name from opts and merge with data_feed_opts
     feed_opts = opts |> Keyword.delete(:name) |> Keyword.merge(data_feed_opts)
 
@@ -233,8 +231,8 @@ defmodule TheoryCraft.MarketSource do
       raise ArgumentError, "Currently only one data feed is supported"
     end
 
-    # Default name = number of existing feeds
-    name = Keyword.get_lazy(opts, :name, fn -> length(data_feeds) end)
+    # Default name = "data"
+    name = Keyword.get(opts, :name, "data")
 
     %MarketSource{
       market
@@ -343,7 +341,7 @@ defmodule TheoryCraft.MarketSource do
     resampled_market =
       %MarketSource{
         market
-        | processor_layers: processor_layers ++ [[processor_spec]],
+        | processor_layers: [[processor_spec] | processor_layers],
           data_streams: [output_name | data_streams]
       }
 
@@ -484,13 +482,13 @@ defmodule TheoryCraft.MarketSource do
         # Wrap indicator in IndicatorProcessor
         processor_spec = {IndicatorProcessor, Keyword.put(enhanced_opts, :module, module)}
 
-        {processor_spec, generated_names ++ [output_name]}
+        {processor_spec, [output_name | generated_names]}
       end)
 
     # Add new layer with multiple processors and track new data streams
     %MarketSource{
       market
-      | processor_layers: processor_layers ++ [enhanced_specs],
+      | processor_layers: [enhanced_specs | processor_layers],
         data_streams: new_data_names ++ data_streams
     }
   end
@@ -582,13 +580,13 @@ defmodule TheoryCraft.MarketSource do
                   "Please provide a unique :name option."
         end
 
-        {{module, processor_opts}, generated_names ++ [output_name]}
+        {{module, processor_opts}, [output_name | generated_names]}
       end)
 
     # Add new layer with multiple processors and track new data streams
     %MarketSource{
       market
-      | processor_layers: processor_layers ++ [normalized_specs],
+      | processor_layers: [normalized_specs | processor_layers],
         data_streams: new_data_names ++ data_streams
     }
   end
@@ -671,7 +669,7 @@ defmodule TheoryCraft.MarketSource do
 
     aggregator_spec = {BarAggregatorStage, [bar_names: bar_names]}
 
-    %MarketSource{market | processor_layers: processor_layers ++ [[aggregator_spec]]}
+    %MarketSource{market | processor_layers: [[aggregator_spec] | processor_layers]}
   end
 
   @doc """
@@ -710,7 +708,27 @@ defmodule TheoryCraft.MarketSource do
     {strategy_module, spec_opts} = Utils.normalize_spec(strategy_spec)
     strategy_opts = Keyword.merge(spec_opts, opts)
 
-    %MarketSource{market | strategies: strategies ++ [{strategy_module, strategy_opts}]}
+    %MarketSource{market | strategies: [{strategy_module, strategy_opts} | strategies]}
+  end
+
+  @doc """
+  Returns the list of data stream names in the order they were added.
+
+  ## Examples
+
+      market =
+        %MarketSource{}
+        |> add_data_ticks_from_csv("ticks.csv", name: "XAUUSD")
+        |> resample("m5", name: "XAUUSD_m5")
+        |> resample("h1", name: "XAUUSD_h1")
+
+      data_streams(market)
+      # => ["XAUUSD", "XAUUSD_m5", "XAUUSD_h1"]
+
+  """
+  @spec data_streams(t()) :: [String.t()]
+  def data_streams(%MarketSource{data_streams: data_streams}) do
+    Enum.reverse(data_streams)
   end
 
   @doc """
@@ -818,9 +836,12 @@ defmodule TheoryCraft.MarketSource do
     # Start DataFeedStage producer with demand: :accumulate
     {:ok, data_feed_pid} = DataFeedStage.start_link(source, name: data_name)
 
+    # Reverse processor_layers since we built them in reverse order (prepending)
+    layers_in_order = Enum.reverse(processor_layers)
+
     # Build pipeline left to right
     final_stage_pid =
-      Enum.reduce(processor_layers, data_feed_pid, fn layer, upstream_pid ->
+      Enum.reduce(layers_in_order, data_feed_pid, fn layer, upstream_pid ->
         materialize_layer(layer, upstream_pid)
       end)
 
