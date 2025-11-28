@@ -14,9 +14,9 @@ defmodule TheoryCraft.MarketSource.ProcessorStage do
 
   ## Examples
 
-      # Start a ProcessorStage with TickToBarProcessor
+      # Start a ProcessorStage with ResampleProcessor
       {:ok, processor_stage} = ProcessorStage.start_link(
-        {TickToBarProcessor, [data: "ticks", timeframe: "m5"]},
+        {ResampleProcessor, [data: "ticks", timeframe: "m5"]},
         subscribe_to: [feed_stage]
       )
 
@@ -105,7 +105,7 @@ defmodule TheoryCraft.MarketSource.ProcessorStage do
 
       # Basic usage
       {:ok, stage} = ProcessorStage.start_link(
-        {TickToBarProcessor, [data: "ticks", timeframe: "m5"]},
+        {ResampleProcessor, [data: "ticks", timeframe: "m5"]},
         subscribe_to: [feed_stage]
       )
 

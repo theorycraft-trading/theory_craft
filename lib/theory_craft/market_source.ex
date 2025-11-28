@@ -109,8 +109,8 @@ defmodule TheoryCraft.MarketSource do
     MarketEvent,
     Processor,
     ProcessorStage,
-    TicksCSVDataFeed,
-    TickToBarProcessor
+    ResampleProcessor,
+    TicksCSVDataFeed
   }
 
   defstruct [
@@ -260,7 +260,7 @@ defmodule TheoryCraft.MarketSource do
   @doc """
   Resamples the data to a different timeframe.
 
-  Creates a new processor layer with a single TickToBarProcessor.
+  Creates a new processor layer with a single ResampleProcessor.
 
   ## Default Names
 
@@ -335,7 +335,7 @@ defmodule TheoryCraft.MarketSource do
       |> Keyword.put(:data, data_name)
       |> Keyword.put(:name, output_name)
 
-    processor_spec = {TickToBarProcessor, processor_opts}
+    processor_spec = {ResampleProcessor, processor_opts}
 
     # Add new layer with single processor and track new data stream
     resampled_market =
@@ -513,11 +513,11 @@ defmodule TheoryCraft.MarketSource do
 
       # Add a single processor
       market
-      |> add_processor(TickToBarProcessor, timeframe: "m5", name: "xauusd_m5")
+      |> add_processor(ResampleProcessor, timeframe: "m5", name: "xauusd_m5")
 
       # Chain multiple processors
       market
-      |> add_processor(TickToBarProcessor, timeframe: "m5", name: "xauusd_m5")
+      |> add_processor(ResampleProcessor, timeframe: "m5", name: "xauusd_m5")
       |> add_processor(MyCustomProcessor, some_option: 123, name: "custom")
 
   """
@@ -542,8 +542,8 @@ defmodule TheoryCraft.MarketSource do
       # Add multiple processors in parallel
       market
       |> add_processor_layer([
-        {TickToBarProcessor, [timeframe: "m5", name: "xauusd_m5"]},
-        {TickToBarProcessor, [timeframe: "h1", name: "xauusd_h1"]}
+        {ResampleProcessor, [timeframe: "m5", name: "xauusd_m5"]},
+        {ResampleProcessor, [timeframe: "h1", name: "xauusd_h1"]}
       ])
 
       # Add custom processors

@@ -8,8 +8,8 @@ defmodule TheoryCraft.MarketSourceTest do
     IndicatorValue,
     MarketEvent,
     MemoryDataFeed,
-    Tick,
-    TickToBarProcessor
+    ResampleProcessor,
+    Tick
   }
 
   alias TheoryCraft.TestIndicators.{SimpleIndicator, SMAIndicator}
@@ -175,7 +175,7 @@ defmodule TheoryCraft.MarketSourceTest do
       events =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.add_processor(TickToBarProcessor,
+        |> MarketSource.add_processor(ResampleProcessor,
           data: "xauusd",
           timeframe: "m5",
           name: "xauusd_m5"
@@ -199,8 +199,8 @@ defmodule TheoryCraft.MarketSourceTest do
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
         |> MarketSource.add_processor_layer([
-          {TickToBarProcessor, [data: "xauusd", timeframe: "m5", name: "xauusd_m5"]},
-          {TickToBarProcessor, [data: "xauusd", timeframe: "h1", name: "xauusd_h1"]}
+          {ResampleProcessor, [data: "xauusd", timeframe: "m5", name: "xauusd_m5"]},
+          {ResampleProcessor, [data: "xauusd", timeframe: "h1", name: "xauusd_h1"]}
         ])
         |> MarketSource.stream()
         |> Enum.to_list()
@@ -222,7 +222,7 @@ defmodule TheoryCraft.MarketSourceTest do
       events =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.add_processor(TickToBarProcessor,
+        |> MarketSource.add_processor(ResampleProcessor,
           data: "xauusd",
           timeframe: "m5",
           name: "xauusd_m5"
@@ -300,7 +300,7 @@ defmodule TheoryCraft.MarketSourceTest do
       assert_raise KeyError, ~r/key :name not found/, fn ->
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, feed: :dummy, name: "xauusd")
-        |> MarketSource.add_processor(TickToBarProcessor, timeframe: "m5")
+        |> MarketSource.add_processor(ResampleProcessor, timeframe: "m5")
       end
     end
 
@@ -309,8 +309,8 @@ defmodule TheoryCraft.MarketSourceTest do
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, feed: :dummy, name: "xauusd")
         |> MarketSource.add_processor_layer([
-          {TickToBarProcessor, [timeframe: "m5", name: "duplicate"]},
-          {TickToBarProcessor, [timeframe: "h1", name: "duplicate"]}
+          {ResampleProcessor, [timeframe: "m5", name: "duplicate"]},
+          {ResampleProcessor, [timeframe: "h1", name: "duplicate"]}
         ])
       end
     end
@@ -321,7 +321,7 @@ defmodule TheoryCraft.MarketSourceTest do
       assert_raise ArgumentError, ~r/Data stream name "xauusd" is already taken/, fn ->
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.add_processor(TickToBarProcessor, timeframe: "m5", name: "xauusd")
+        |> MarketSource.add_processor(ResampleProcessor, timeframe: "m5", name: "xauusd")
       end
     end
   end

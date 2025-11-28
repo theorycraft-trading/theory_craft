@@ -42,7 +42,7 @@ defmodule TheoryCraft.MarketSource.Processor do
 
   ## Built-in Processors
 
-  - `TheoryCraft.Processors.TickToBarProcessor` - Converts tick data to OHLC bars
+  - `TheoryCraft.MarketSource.ResampleProcessor` - Resamples Tick or Bar data to OHLC bars
 
   ## Integration with MarketSource
 

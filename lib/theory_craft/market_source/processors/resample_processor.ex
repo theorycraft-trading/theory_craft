@@ -1,14 +1,16 @@
-defmodule TheoryCraft.MarketSource.TickToBarProcessor do
+defmodule TheoryCraft.MarketSource.ResampleProcessor do
   @moduledoc """
-  Transforms tick data into bar data with configurable timeframes.
+  Resamples market data (Ticks or Bars) into bars with configurable timeframes.
 
-  This processor converts a stream of `Tick` structs into `Bar` structs (OHLCV data)
-  by resampling at specified timeframe intervals. It supports all standard trading timeframes
-  from tick-based to monthly bars.
+  This processor converts a stream of `Tick` or `Bar` structs into `Bar` structs (OHLCV data)
+  by resampling at specified timeframe intervals. It supports:
+
+  - **Tick → Bar**: Convert tick data into bars (e.g., ticks → m5 bars)
+  - **Bar → Bar**: Resample bars to larger timeframes (e.g., m1 bars → h1 bars)
 
   ## Supported Timeframes
 
-  - **Tick-based** (`t<N>`): Group N ticks into one bar (e.g., "t5" = 5 ticks per bar)
+  - **Tick-based** (`t<N>`): Group N ticks into one bar (e.g., "t5" = 5 ticks per bar). Only supports Tick input.
   - **Second-based** (`s<N>`): N-second bars (e.g., "s5", "s30")
   - **Minute-based** (`m<N>`): N-minute bars (e.g., "m1", "m5", "m15")
   - **Hour-based** (`h<N>`): N-hour bars (e.g., "h1", "h4")
@@ -21,8 +23,8 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
   - `:data` (required) - Name of the data stream in the MarketEvent
   - `:timeframe` (required) - Timeframe string (e.g., "m5", "h1", "D")
   - `:name` - Custom name for this processor (default: "<data>_<timeframe>")
-  - `:price_type` - Price to use from ticks: `:mid`, `:bid`, or `:ask` (default: `:mid`)
-  - `:fake_volume?` - Use fake volume of 1.0 per tick when volume is missing (default: `true`)
+  - `:price_type` - Price to use from ticks: `:mid`, `:bid`, or `:ask` (default: `:mid`). Ignored for Bar input.
+  - `:fake_volume?` - Use fake volume of 1.0 per tick when volume is missing (default: `true`). Ignored for Bar input.
   - `:market_open` - Time when the market opens, used for daily/weekly/monthly alignment (default: `~T[00:00:00]`)
   - `:weekly_open` - Day the week starts (default: `:monday`)
 
@@ -47,7 +49,7 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
         price_type: :bid,
         market_open: ~T[09:30:00]
       ]
-      {:ok, state} = TickToBarProcessor.init(opts)
+      {:ok, state} = ResampleProcessor.init(opts)
 
       # Weekly bars starting on Sunday
       opts = [
@@ -55,7 +57,7 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
         timeframe: "W",
         weekly_open: :sunday
       ]
-      {:ok, state} = TickToBarProcessor.init(opts)
+      {:ok, state} = ResampleProcessor.init(opts)
 
   """
 
@@ -114,11 +116,11 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
 
   ## Examples
 
-      iex> TickToBarProcessor.init(data: "eurusd", timeframe: "m5")
-      {:ok, %TickToBarProcessor{data_name: "eurusd", timeframe: {"m", 5}, ...}}
+      iex> ResampleProcessor.init(data: "eurusd", timeframe: "m5")
+      {:ok, %ResampleProcessor{data_name: "eurusd", timeframe: {"m", 5}, ...}}
 
-      iex> TickToBarProcessor.init(data: "xauusd", timeframe: "D", price_type: :bid)
-      {:ok, %TickToBarProcessor{data_name: "xauusd", price_type: :bid, ...}}
+      iex> ResampleProcessor.init(data: "xauusd", timeframe: "D", price_type: :bid)
+      {:ok, %ResampleProcessor{data_name: "xauusd", price_type: :bid, ...}}
 
   """
   @impl true
@@ -134,7 +136,7 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
     weekly_open = Keyword.get(opts, :weekly_open, :monday)
     timeframe = TimeFrame.parse!(timeframe_from_user)
 
-    state = %TickToBarProcessor{
+    state = %ResampleProcessor{
       name: name,
       data_name: data_name,
       market_open: market_open,
@@ -148,9 +150,12 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
   end
 
   @doc """
-  Processes a MarketEvent containing Tick data and transforms it into Bar data.
+  Processes a MarketEvent containing Tick or Bar data and transforms it into Bar data.
 
-  This function handles the transformation based on the configured timeframe:
+  This function handles both Tick → Bar and Bar → Bar transformation based on the configured
+  timeframe.
+
+  ## Tick → Bar Transformation
 
   - **Tick-based timeframes** (`t<N>`): Accumulates N ticks before creating a new bar.
     Also handles market_open transitions by starting a new bar when crossing market open time.
@@ -158,47 +163,51 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
   - **Time-based timeframes** (`s`, `m`, `h`, `D`, `W`, `M`): Creates bars aligned to
     timeframe boundaries. Starts a new bar when the tick's time crosses the `next_time`.
 
-  The function reads Tick data from the `:data` key in the MarketEvent and writes the generated
-  Bar data to the `:name` key. This allows the input ticks and output bars to coexist in
-  the event's data map. If `:name` equals `:data`, the ticks will be overwritten by the bars.
+  ## Bar → Bar Transformation
 
-  ## Behavior
+  For time-based timeframes (`s`, `m`, `h`, `D`, `W`, `M`), source bars are aggregated:
+  - `open` from the first source bar in the period
+  - `high` = max of all source bar highs
+  - `low` = min of all source bar lows
+  - `close` from the last source bar in the period
+  - `volume` = sum of all source bar volumes (handles nil gracefully)
+  - `new_bar?` and `new_market?` are recalculated for the target timeframe
 
-  - **First tick**: Creates the initial bar with OHLC all set to the tick's price
-  - **Within period**: Updates the current bar's high, low, close, and volume
-  - **Period boundary**: Creates a new bar and resets accumulation
+  Note: Tick-based timeframes (`t<N>`) only support Tick input and will raise an error for Bar input.
+
+  ## Data Flow
+
+  The function reads Tick/Bar data from the `:data` key in the MarketEvent and writes the generated
+  Bar data to the `:name` key. This allows the input data and output bars to coexist in
+  the event's data map. If `:name` equals `:data`, the input will be overwritten by the output.
 
   ## Examples
 
-      # Processing first tick (5-minute timeframe)
-      # By default, name is "eurusd_m5" when data is "eurusd"
+      # Tick → Bar: Processing first tick (5-minute timeframe)
       event = %MarketEvent{data: %{"eurusd" => %Tick{time: ~U[2024-01-15 10:07:30Z], bid: 1.0850, ask: 1.0852}}}
-      {:ok, state} = TickToBarProcessor.init(data: "eurusd", timeframe: "m5")
-      {:ok, new_event, new_state} = TickToBarProcessor.next(event, state)
+      {:ok, state} = ResampleProcessor.init(data: "eurusd", timeframe: "m5")
+      {:ok, new_event, new_state} = ResampleProcessor.next(event, state)
       # new_event.data["eurusd_m5"] is a Bar at time 10:05:00 with OHLC = 1.0851
       # new_event.data["eurusd"] still contains the original Tick
 
-      # Processing tick within same period
-      event2 = %MarketEvent{data: %{"eurusd" => %Tick{time: ~U[2024-01-15 10:08:00Z], bid: 1.0855, ask: 1.0857}}}
-      {:ok, new_event2, new_state2} = TickToBarProcessor.next(event2, new_state)
-      # new_event2.data["eurusd_m5"] updates the same bar with new high/close
+      # Bar → Bar: Resample m1 bars to m5 bars
+      bar = %Bar{time: ~U[2024-01-15 10:02:00Z], open: 1.0850, high: 1.0860, low: 1.0845, close: 1.0855, volume: 100.0}
+      event = %MarketEvent{data: %{"eurusd_m1" => bar}}
+      {:ok, state} = ResampleProcessor.init(data: "eurusd_m1", timeframe: "m5", name: "eurusd_m5")
+      {:ok, new_event, new_state} = ResampleProcessor.next(event, state)
+      # new_event.data["eurusd_m5"] is a Bar at time 10:00:00 (aligned to m5 boundary)
+      # new_event.data["eurusd_m1"] still contains the original Bar
 
       # Crossing boundary creates new bar
       event3 = %MarketEvent{data: %{"eurusd" => %Tick{time: ~U[2024-01-15 10:10:00Z], bid: 1.0860, ask: 1.0862}}}
-      {:ok, new_event3, new_state3} = TickToBarProcessor.next(event3, new_state2)
+      {:ok, new_event3, new_state3} = ResampleProcessor.next(event3, new_state2)
       # new_event3.data["eurusd_m5"] is a NEW Bar at time 10:10:00
-
-      # Using explicit name to preserve both ticks and bars
-      {:ok, state} = TickToBarProcessor.init(data: "xauusd_ticks", timeframe: "h1", name: "xauusd_h1")
-      # Input: event.data["xauusd_ticks"] contains Tick
-      # Output: event.data["xauusd_h1"] will contain Bar
-      # Both coexist in the same MarketEvent
 
   """
   @impl true
   @spec next(MarketEvent.t(), t()) :: {:ok, MarketEvent.t(), t()}
-  def next(event, %TickToBarProcessor{timeframe: {"t", _mult}, tick_counter: nil} = state) do
-    %TickToBarProcessor{
+  def next(event, %ResampleProcessor{timeframe: {"t", _mult}, tick_counter: nil} = state) do
+    %ResampleProcessor{
       name: name,
       data_name: data_name,
       price_type: price_type,
@@ -210,14 +219,14 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
     bar = create_bar_from_tick(tick.time, tick, price_type, fake_volume?, false)
 
     updated_event = %MarketEvent{event | data: Map.put(event.data, name, bar)}
-    updated_state = %TickToBarProcessor{state | tick_counter: 1, current_bar: bar}
+    updated_state = %ResampleProcessor{state | tick_counter: 1, current_bar: bar}
 
     {:ok, updated_event, updated_state}
   end
 
   @impl true
-  def next(event, %TickToBarProcessor{timeframe: {"t", _mult}} = state) do
-    %TickToBarProcessor{
+  def next(event, %ResampleProcessor{timeframe: {"t", _mult}} = state) do
+    %ResampleProcessor{
       name: name,
       data_name: data_name,
       price_type: price_type,
@@ -227,7 +236,7 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
     } = state
 
     tick = market_data_tick!(event, data_name)
-    new_bar? = new_bar?(tick, state)
+    new_bar? = new_bar_tick_based?(tick, state)
     new_market? = if new_bar?, do: new_market?(tick, state), else: false
 
     bar =
@@ -238,7 +247,7 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
 
     updated_event = %MarketEvent{event | data: Map.put(event.data, name, bar)}
 
-    updated_state = %TickToBarProcessor{
+    updated_state = %ResampleProcessor{
       state
       | tick_counter: if(new_bar?, do: 1, else: tick_counter + 1),
         current_bar: bar
@@ -247,40 +256,69 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
     {:ok, updated_event, updated_state}
   end
 
-  # First tick for time-based timeframe (s, m, h, D, W, M)
+  # First input for time-based timeframe (s, m, h, D, W, M)
   @impl true
-  def next(event, %TickToBarProcessor{timeframe: {unit, _mult}, next_time: nil} = state)
+  def next(event, %ResampleProcessor{timeframe: {unit, _mult}, next_time: nil} = state)
       when unit in ["s", "m", "h", "D", "W", "M"] do
-    %TickToBarProcessor{
+    %ResampleProcessor{data_name: data_name} = state
+
+    case get_input(event, data_name) do
+      {:tick, tick} -> handle_first_tick(event, tick, state)
+      {:bar, bar} -> handle_first_bar(event, bar, state)
+    end
+  end
+
+  # Subsequent ticks for time-based timeframe (s, m, h, D, W, M)
+  @impl true
+  def next(event, %ResampleProcessor{timeframe: {unit, _mult}} = state)
+      when unit in ["s", "m", "h", "D", "W", "M"] do
+    %ResampleProcessor{data_name: data_name} = state
+
+    case get_input(event, data_name) do
+      {:tick, tick} -> handle_subsequent_tick(event, tick, state)
+      {:bar, bar} -> handle_subsequent_bar(event, bar, state)
+    end
+  end
+
+  ## Private functions - Input detection
+
+  defp get_input(event, data_name) do
+    case event do
+      %MarketEvent{data: %{^data_name => %Tick{} = tick}} ->
+        {:tick, tick}
+
+      %MarketEvent{data: %{^data_name => %Bar{} = bar}} ->
+        {:bar, bar}
+
+      %MarketEvent{data: %{^data_name => value}} ->
+        raise "Data must be Tick or Bar, got #{inspect(value)}"
+    end
+  end
+
+  ## Private functions - Tick handlers
+
+  defp handle_first_tick(event, tick, state) do
+    %ResampleProcessor{
       name: name,
-      data_name: data_name,
       price_type: price_type,
       fake_volume?: fake_volume?,
       timeframe: timeframe,
       market_open: market_open
     } = state
 
-    tick = market_data_tick!(event, data_name)
     aligned_time = align_time(tick.time, timeframe, state)
-
-    # First tick is always a new bar and not a new market
     bar = create_bar_from_tick(aligned_time, tick, price_type, fake_volume?, false)
-
     next_time = calculate_next_bar_time(aligned_time, timeframe, market_open)
 
     updated_event = %MarketEvent{event | data: Map.put(event.data, name, bar)}
-    updated_state = %TickToBarProcessor{state | next_time: next_time, current_bar: bar}
+    updated_state = %ResampleProcessor{state | next_time: next_time, current_bar: bar}
 
     {:ok, updated_event, updated_state}
   end
 
-  # Subsequent ticks for time-based timeframe (s, m, h, D, W, M)
-  @impl true
-  def next(event, %TickToBarProcessor{timeframe: {unit, _mult}} = state)
-      when unit in ["s", "m", "h", "D", "W", "M"] do
-    %TickToBarProcessor{
+  defp handle_subsequent_tick(event, tick, state) do
+    %ResampleProcessor{
       name: name,
-      data_name: data_name,
       price_type: price_type,
       current_bar: current_bar,
       fake_volume?: fake_volume?,
@@ -288,7 +326,6 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
       market_open: market_open
     } = state
 
-    tick = market_data_tick!(event, data_name)
     new_bar? = new_bar?(tick, state)
     new_market? = if new_bar?, do: new_market?(tick, state), else: false
 
@@ -310,12 +347,99 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
       end
 
     updated_event = %MarketEvent{event | data: Map.put(event.data, name, bar)}
-    updated_state = %TickToBarProcessor{state | next_time: next_time, current_bar: bar}
+    updated_state = %ResampleProcessor{state | next_time: next_time, current_bar: bar}
 
     {:ok, updated_event, updated_state}
   end
 
-  ## Private functions
+  ## Private functions - Bar handlers
+
+  defp handle_first_bar(event, bar, state) do
+    %ResampleProcessor{name: name, timeframe: timeframe, market_open: market_open} = state
+
+    aligned_time = align_time(bar.time, timeframe, state)
+    new_bar = create_bar_from_bar(aligned_time, bar, false)
+    next_time = calculate_next_bar_time(aligned_time, timeframe, market_open)
+
+    updated_event = %MarketEvent{event | data: Map.put(event.data, name, new_bar)}
+    updated_state = %ResampleProcessor{state | next_time: next_time, current_bar: new_bar}
+
+    {:ok, updated_event, updated_state}
+  end
+
+  defp handle_subsequent_bar(event, bar, state) do
+    %ResampleProcessor{
+      name: name,
+      timeframe: timeframe,
+      market_open: market_open,
+      current_bar: current_bar
+    } = state
+
+    new_bar? = new_bar?(bar, state)
+    new_market? = if new_bar?, do: new_market?(bar, state), else: false
+
+    {result_bar, next_time} =
+      if new_bar? do
+        aligned_time = align_time(bar.time, timeframe, state)
+        new_bar = create_bar_from_bar(aligned_time, bar, new_market?)
+        next_time = calculate_next_bar_time(aligned_time, timeframe, market_open)
+        {new_bar, next_time}
+      else
+        {update_bar_from_bar(current_bar, bar), state.next_time}
+      end
+
+    updated_event = %MarketEvent{event | data: Map.put(event.data, name, result_bar)}
+    updated_state = %ResampleProcessor{state | next_time: next_time, current_bar: result_bar}
+
+    {:ok, updated_event, updated_state}
+  end
+
+  ## Private functions - Bar creation/update from Bar
+
+  defp create_bar_from_bar(time, source_bar, new_market?) do
+    %Bar{open: open, high: high, low: low, close: close, volume: volume} = source_bar
+
+    %Bar{
+      time: time,
+      open: open,
+      high: high,
+      low: low,
+      close: close,
+      volume: volume,
+      new_bar?: true,
+      new_market?: new_market?
+    }
+  end
+
+  defp update_bar_from_bar(current_bar, source_bar) do
+    %Bar{volume: prev_volume, high: high, low: low} = current_bar
+
+    %Bar{
+      high: source_high,
+      low: source_low,
+      close: source_close,
+      volume: source_volume
+    } = source_bar
+
+    final_volume = add_volumes(prev_volume, source_volume)
+
+    %Bar{
+      current_bar
+      | high: max(high, source_high),
+        low: min(low, source_low),
+        close: source_close,
+        volume: final_volume,
+        new_bar?: false,
+        new_market?: false
+    }
+  end
+
+  defp add_volumes(nil, nil), do: nil
+  defp add_volumes(nil, v), do: v
+  defp add_volumes(v, nil), do: v
+  defp add_volumes(v1, v2), do: v1 + v2
+
+  ## Private functions - Tick helpers
 
   defp tick_price(%Tick{ask: ask}, :ask), do: ask
   defp tick_price(%Tick{bid: bid}, :bid), do: bid
@@ -346,10 +470,10 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
   end
 
   # Tick-based timeframe
-  defp new_bar?(%Tick{} = tick, %TickToBarProcessor{timeframe: {"t", mult}} = state) do
+  defp new_bar_tick_based?(%Tick{} = tick, %ResampleProcessor{timeframe: {"t", mult}} = state) do
     %Tick{time: time} = tick
 
-    %TickToBarProcessor{
+    %ResampleProcessor{
       tick_counter: counter,
       market_open: market_open,
       current_bar: %Bar{time: bar_dt}
@@ -372,23 +496,23 @@ defmodule TheoryCraft.MarketSource.TickToBarProcessor do
   end
 
   # Time-based timeframe (s, m, h, D, W, M)
-  defp new_bar?(%Tick{time: time}, %TickToBarProcessor{next_time: next_time}) do
+  defp new_bar?(%_struct{time: time}, %ResampleProcessor{next_time: next_time}) do
     DateTime.compare(time, next_time) != :lt
   end
 
-  # Check if tick crosses market_open boundary
+  # Check if input crosses market_open boundary
   defp new_market?(
-         %Tick{time: tick_time},
-         %TickToBarProcessor{
+         %_struct{time: input_time},
+         %ResampleProcessor{
            market_open: market_open,
            current_bar: %Bar{time: bar_dt}
          }
        ) do
     bar_time = DateTime.to_time(bar_dt)
-    tick_time_only = DateTime.to_time(tick_time)
+    input_time_only = DateTime.to_time(input_time)
 
     Time.compare(bar_time, market_open) == :lt and
-      Time.compare(tick_time_only, market_open) != :lt
+      Time.compare(input_time_only, market_open) != :lt
   end
 
   # Align a DateTime to the start of the timeframe period

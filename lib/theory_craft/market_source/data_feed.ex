@@ -54,7 +54,7 @@ defmodule TheoryCraft.MarketSource.DataFeed do
       market =
         %MarketSource{}
         |> MarketSource.add_data(feed_stream, name: "eurusd_ticks")
-        |> MarketSource.add_processor(TickToBarProcessor, data: "eurusd_ticks", timeframe: "m5")
+        |> MarketSource.add_processor(ResampleProcessor, data: "eurusd_ticks", timeframe: "m5")
         |> MarketSource.stream()
 
       # Process the data
@@ -81,7 +81,7 @@ defmodule TheoryCraft.MarketSource.DataFeed do
 
   DataFeeds **must** provide data in ascending chronological order. This is critical because:
 
-  - Processors like `TickToBarProcessor` assume time-ordered data for bar boundary detection
+  - Processors like `ResampleProcessor` assume time-ordered data for bar boundary detection
   - Strategies depend on receiving events in the order they occurred historically
   - The `MarketSource` does not perform any sorting or time validation
 
