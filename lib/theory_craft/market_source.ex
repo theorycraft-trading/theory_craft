@@ -70,12 +70,12 @@ defmodule TheoryCraft.MarketSource do
   ## Bar Aggregation
 
   By default, resampling emits an event for every tick, even if the bar is incomplete.
-  To emit only completed bars, use either `aggregate_bars/2` or the `:only_bar` option:
+  To emit only completed bars, use either `aggregate_bars/2` or the `:bar_only` option:
 
-      # Single resample with only_bar: true
+      # Single resample with bar_only: true
       %MarketSource{}
       |> add_data_ticks_from_csv("ticks.csv", name: "XAUUSD")
-      |> resample("m5", only_bar: true)
+      |> resample("m5", bar_only: true)
       |> stream()
 
       # Multiple resamples with aggregate_bars
@@ -86,7 +86,7 @@ defmodule TheoryCraft.MarketSource do
       |> aggregate_bars(["XAUUSD_m5", "XAUUSD_h1"])
       |> stream()
 
-  **Important**: When using `:only_bar: true`, do NOT add more resample layers after it,
+  **Important**: When using `:bar_only: true`, do NOT add more resample layers after it,
   as downstream processors would receive incomplete data. For multiple resamples, use
   `aggregate_bars/2` after all resampling operations.
 
@@ -274,12 +274,12 @@ defmodule TheoryCraft.MarketSource do
     - `opts`: Optional parameters:
       - `:data` - Source data name (default: data feed name)
       - `:name` - Output data name (default: `"{data}_{timeframe}"`)
-      - `:only_bar` - If true, automatically adds aggregation to emit only completed bars (default: false)
+      - `:bar_only` - If true, automatically adds aggregation to emit only completed bars (default: false)
       - Other processor options
 
   ## Important Notes
 
-  When using `:only_bar: true`:
+  When using `:bar_only: true`:
   - Do NOT add more resample layers after this one, as they would receive incomplete data
   - For multiple resamples, use `aggregate_bars/2` after all resamples instead
   - **1-tick lag**: Bars are emitted when the next bar starts. In live trading, the last
@@ -294,8 +294,8 @@ defmodule TheoryCraft.MarketSource do
       # With default names (if data feed is named "XAUUSD")
       resample(market, "m5")  # data="XAUUSD", name="XAUUSD_m5"
 
-      # With only_bar to emit only completed bars
-      resample(market, "m5", only_bar: true)
+      # With bar_only to emit only completed bars
+      resample(market, "m5", bar_only: true)
 
   """
   @spec resample(t(), String.t(), Keyword.t()) :: t()
@@ -309,7 +309,7 @@ defmodule TheoryCraft.MarketSource do
       raise ArgumentError, "Invalid timeframe #{inspect(timeframe)}"
     end
 
-    {only_bar, opts_without_only_bar} = Keyword.pop(opts, :only_bar, false)
+    {bar_only, opts_without_only_bar} = Keyword.pop(opts, :bar_only, false)
 
     # Deduce :data if not provided (from data feeds)
     data_name =
@@ -345,7 +345,7 @@ defmodule TheoryCraft.MarketSource do
           data_streams: [output_name | data_streams]
       }
 
-    if only_bar do
+    if bar_only do
       aggregate_bars(resampled_market, output_name)
     else
       resampled_market
@@ -617,7 +617,7 @@ defmodule TheoryCraft.MarketSource do
 
   - This should be used AFTER all resampling operations are complete
   - Do NOT add more resample layers after aggregation, as the data would be incomplete
-  - For a single resample with aggregation, you can use `resample("m5", only_bar: true)` instead
+  - For a single resample with aggregation, you can use `resample("m5", bar_only: true)` instead
 
   ## 1-Tick Lag Warning
 

@@ -49,7 +49,7 @@ alias KinoTheoryCraft.Chart
 market_source =
   %MarketSource{}
   |> MarketSource.add_data(csv_stream, name: "data")
-  |> MarketSource.resample("m5", only_bar: true, name: "data_m5")
+  |> MarketSource.resample("m5", bar_only: true, name: "data_m5")
   |> MarketSource.add_indicators_layer([
     TA.sma(data_m5[:close], 8, name: "sma_8"),
     TA.ema(data_m5[:close], 13, name: "ema_13")

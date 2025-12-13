@@ -813,12 +813,12 @@ defmodule TheoryCraft.MarketSourceTest do
     end
   end
 
-  describe "resample with only_bar: true" do
+  describe "resample with bar_only: true" do
     test "automatically aggregates bars", %{feed: feed} do
       events =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.resample("m5", name: "xauusd_m5", only_bar: true)
+        |> MarketSource.resample("m5", name: "xauusd_m5", bar_only: true)
         |> MarketSource.stream()
         |> Enum.to_list()
 
@@ -836,7 +836,7 @@ defmodule TheoryCraft.MarketSourceTest do
       events =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.resample("m5", only_bar: true)
+        |> MarketSource.resample("m5", bar_only: true)
         |> MarketSource.stream()
         |> Enum.to_list()
 
@@ -851,7 +851,7 @@ defmodule TheoryCraft.MarketSourceTest do
       events =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.resample("m5", only_bar: true)
+        |> MarketSource.resample("m5", bar_only: true)
         |> MarketSource.add_indicator(SimpleIndicator, constant: 10.0, name: "test_ind")
         |> MarketSource.stream()
         |> Enum.to_list()

@@ -89,7 +89,7 @@ Filter out incomplete bars to avoid redundant calculations:
 market =
   %MarketSource{}
   |> MarketSource.add_data_ticks_from_csv("ticks.csv", name: "XAUUSD")
-  |> MarketSource.resample("m5", name: "XAUUSD_m5", only_bar: true)
+  |> MarketSource.resample("m5", name: "XAUUSD_m5", bar_only: true)
   |> MarketSource.add_indicators_layer([
     TA.sma(XAUUSD_m5[:close], 20, name: "sma_20")
   ])
