@@ -1,8 +1,16 @@
+![CI](https://github.com/theorycraft-trading/theory_craft/actions/workflows/ci.yml/badge.svg)
+[![Documentation](https://img.shields.io/badge/hex.pm-docs-green.svg?style=flat)](https://hexdocs.pm/theory_craft)
+[![Package](https://img.shields.io/hexpm/v/theory_craft.svg)](https://hex.pm/packages/theory_craft)
+
+<!-- MDOC -->
+
 # TheoryCraft
 
-[TheoryCraft](https://github.com/theorycraft-trading/theory_craft) is a powerful Elixir library for backtesting trading strategies using streaming data pipelines.
+[TheoryCraft](https://github.com/theorycraft-trading/theory_craft) is an open-source, event-driven backtesting and execution engine for quantitative trading, written in Elixir.
 
 TheoryCraft provides a GenStage-based streaming architecture for processing market data through configurable processors and data feeds. Build complex trading strategies with multiple timeframes, technical indicators, and custom processors using a fluent, composable API.
+
+For tutorials and guides, see the [user documentation](https://theorycraft-trading.com/docs/).
 
 ## ⚠️ Development Status
 
