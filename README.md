@@ -122,7 +122,7 @@ end
 
 ## Examples
 
-For detailed examples and tutorials, check out the notebooks in the [livebooks](livebooks/) directory.
+For detailed examples and tutorials, check out the notebooks in the [livebooks](https://github.com/theorycraft-trading/theory_craft/tree/main/livebooks/) directory.
 
 ## License
 
