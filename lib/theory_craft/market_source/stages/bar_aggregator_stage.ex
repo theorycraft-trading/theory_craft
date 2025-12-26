@@ -191,7 +191,10 @@ defmodule TheoryCraft.MarketSource.BarAggregatorStage do
       {final_data, _} =
         build_emission_and_mark_emitted(bar_names, pending_data, stored_bars, stored_bars, %{})
 
-      final_event = %MarketEvent{pending_event | data: final_data}
+      # credo:disable-for-next-line Credo.Check.Design.TagFIXME
+      # FIXME: This doesn't not compile in Elixir 1.19.4 due to types resolution
+      # final_event = %MarketEvent{pending_event | data: final_data}
+      final_event = %{pending_event | data: final_data}
 
       # Emit final event then schedule final stop
       GenStage.async_info(self(), :final_stop)
@@ -253,7 +256,11 @@ defmodule TheoryCraft.MarketSource.BarAggregatorStage do
           event_data
         )
 
-      emitted_event = %MarketEvent{pending_event | data: final_data}
+      # credo:disable-for-next-line Credo.Check.Design.TagFIXME
+      # FIXME: This doesn't not compile in Elixir 1.19.4 due to types resolution
+      # emitted_event = %MarketEvent{pending_event | data: final_data}
+      emitted_event = %{pending_event | data: final_data}
+
       {[emitted_event | acc_events], updated_stored_bars, event}
     else
       {acc_events, new_stored_bars, event}

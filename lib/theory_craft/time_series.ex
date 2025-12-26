@@ -644,8 +644,6 @@ defmodule TheoryCraft.TimeSeries do
 
   ## Private functions
 
-  # Inserts a new value with its datetime into the TimeSeries.
-  # This is the common logic used by both add/3 and update/3 for the :gt case.
   defp insert_value(data, dt, datetime, value) do
     new_data = DataSeries.add(data, value)
     new_dt = [datetime | dt]
@@ -661,10 +659,10 @@ defmodule TheoryCraft.TimeSeries do
     %TimeSeries{data: new_data, dt: final_dt}
   end
 
-  # Updates a value in the TimeSeries at the given index.
-  defp update_series_value(series, data, index, get_value, new_value) do
+  defp update_series_value(%TimeSeries{} = series, data, index, get_value, new_value) do
     {_, updated_data} = Access.get_and_update(data, index, fn _old -> {nil, new_value} end)
     new_series = %TimeSeries{series | data: updated_data}
+
     {get_value, new_series}
   end
 end

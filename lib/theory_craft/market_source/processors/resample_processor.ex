@@ -206,7 +206,10 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
   """
   @impl true
   @spec next(MarketEvent.t(), t()) :: {:ok, MarketEvent.t(), t()}
-  def next(event, %ResampleProcessor{timeframe: {"t", _mult}, tick_counter: nil} = state) do
+  def next(
+        %MarketEvent{} = event,
+        %ResampleProcessor{timeframe: {"t", _mult}, tick_counter: nil} = state
+      ) do
     %ResampleProcessor{
       name: name,
       data_name: data_name,
@@ -225,7 +228,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
   end
 
   @impl true
-  def next(event, %ResampleProcessor{timeframe: {"t", _mult}} = state) do
+  def next(%MarketEvent{} = event, %ResampleProcessor{timeframe: {"t", _mult}} = state) do
     %ResampleProcessor{
       name: name,
       data_name: data_name,
@@ -258,7 +261,10 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
 
   # First input for time-based timeframe (s, m, h, D, W, M)
   @impl true
-  def next(event, %ResampleProcessor{timeframe: {unit, _mult}, next_time: nil} = state)
+  def next(
+        %MarketEvent{} = event,
+        %ResampleProcessor{timeframe: {unit, _mult}, next_time: nil} = state
+      )
       when unit in ["s", "m", "h", "D", "W", "M"] do
     %ResampleProcessor{data_name: data_name} = state
 
@@ -270,7 +276,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
 
   # Subsequent ticks for time-based timeframe (s, m, h, D, W, M)
   @impl true
-  def next(event, %ResampleProcessor{timeframe: {unit, _mult}} = state)
+  def next(%MarketEvent{} = event, %ResampleProcessor{timeframe: {unit, _mult}} = state)
       when unit in ["s", "m", "h", "D", "W", "M"] do
     %ResampleProcessor{data_name: data_name} = state
 
@@ -297,7 +303,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
 
   ## Private functions - Tick handlers
 
-  defp handle_first_tick(event, tick, state) do
+  defp handle_first_tick(%MarketEvent{} = event, tick, %ResampleProcessor{} = state) do
     %ResampleProcessor{
       name: name,
       price_type: price_type,
@@ -316,7 +322,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     {:ok, updated_event, updated_state}
   end
 
-  defp handle_subsequent_tick(event, tick, state) do
+  defp handle_subsequent_tick(%MarketEvent{} = event, tick, %ResampleProcessor{} = state) do
     %ResampleProcessor{
       name: name,
       price_type: price_type,
@@ -354,7 +360,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
 
   ## Private functions - Bar handlers
 
-  defp handle_first_bar(event, bar, state) do
+  defp handle_first_bar(%MarketEvent{} = event, bar, %ResampleProcessor{} = state) do
     %ResampleProcessor{name: name, timeframe: timeframe, market_open: market_open} = state
 
     aligned_time = align_time(bar.time, timeframe, state)
@@ -367,7 +373,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     {:ok, updated_event, updated_state}
   end
 
-  defp handle_subsequent_bar(event, bar, state) do
+  defp handle_subsequent_bar(%MarketEvent{} = event, bar, %ResampleProcessor{} = state) do
     %ResampleProcessor{
       name: name,
       timeframe: timeframe,
@@ -411,7 +417,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     }
   end
 
-  defp update_bar_from_bar(current_bar, source_bar) do
+  defp update_bar_from_bar(%Bar{} = current_bar, source_bar) do
     %Bar{volume: prev_volume, high: high, low: low} = current_bar
 
     %Bar{
@@ -516,21 +522,24 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
   end
 
   # Align a DateTime to the start of the timeframe period
-  defp align_time(datetime, {"s", mult}, _state) do
+  defp align_time(%DateTime{} = datetime, {"s", mult}, _state) do
     %DateTime{microsecond: {_value, precision}, second: second} = datetime
     aligned_second = second - rem(second, mult)
+
     %DateTime{datetime | second: aligned_second, microsecond: {0, precision}}
   end
 
-  defp align_time(datetime, {"m", mult}, _state) do
+  defp align_time(%DateTime{} = datetime, {"m", mult}, _state) do
     %DateTime{microsecond: {_value, precision}, minute: minute} = datetime
     aligned_minute = minute - rem(minute, mult)
+
     %DateTime{datetime | minute: aligned_minute, second: 0, microsecond: {0, precision}}
   end
 
-  defp align_time(datetime, {"h", mult}, _state) do
+  defp align_time(%DateTime{} = datetime, {"h", mult}, _state) do
     %DateTime{microsecond: {_value, precision}, hour: hour} = datetime
     aligned_hour = hour - rem(hour, mult)
+
     %DateTime{datetime | hour: aligned_hour, minute: 0, second: 0, microsecond: {0, precision}}
   end
 
@@ -539,7 +548,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     date = DateTime.to_date(datetime)
 
     {:ok, naive} = NaiveDateTime.new(date, market_open)
-    result = DateTime.from_naive!(naive, time_zone)
+    %DateTime{} = result = DateTime.from_naive!(naive, time_zone)
 
     %DateTime{result | microsecond: {0, precision}}
   end
@@ -550,7 +559,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     start_of_week = Date.beginning_of_week(date, weekly_open)
 
     {:ok, naive} = NaiveDateTime.new(start_of_week, market_open)
-    result = DateTime.from_naive!(naive, time_zone)
+    %DateTime{} = result = DateTime.from_naive!(naive, time_zone)
 
     %DateTime{result | microsecond: {0, precision}}
   end
@@ -561,7 +570,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     first_of_month = %Date{date | day: 1}
 
     {:ok, naive} = NaiveDateTime.new(first_of_month, market_open)
-    result = DateTime.from_naive!(naive, time_zone)
+    %DateTime{} = result = DateTime.from_naive!(naive, time_zone)
 
     %DateTime{result | microsecond: {0, precision}}
   end
@@ -663,7 +672,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
       end
 
     {:ok, naive} = NaiveDateTime.new(target_date, market_open_time)
-    result = DateTime.from_naive!(naive, time_zone)
+    %DateTime{} = result = DateTime.from_naive!(naive, time_zone)
 
     %DateTime{result | microsecond: {0, precision}}
   end
@@ -709,7 +718,7 @@ defmodule TheoryCraft.MarketSource.ResampleProcessor do
     }
   end
 
-  defp update_bar_from_tick(bar, tick, price_type, fake_volume?) do
+  defp update_bar_from_tick(%Bar{} = bar, tick, price_type, fake_volume?) do
     %Bar{volume: prev_volume, high: high, low: low} = bar
 
     price = tick_price(tick, price_type)

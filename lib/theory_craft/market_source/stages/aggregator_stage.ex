@@ -270,7 +270,7 @@ defmodule TheoryCraft.MarketSource.AggregatorStage do
         events = Tuple.to_list(events_tuple)
 
         # Take time and source from the first event
-        [first_event | _rest] = events
+        [%MarketEvent{} = first_event | _rest] = events
 
         # Merge all data maps from parallel events
         merged_data =

@@ -172,7 +172,7 @@ defmodule TheoryCraft.MarketSource.IndicatorProcessor do
   """
   @impl true
   @spec next(MarketEvent.t(), t()) :: {:ok, MarketEvent.t(), t()}
-  def next(event, %IndicatorProcessor{} = processor_state) do
+  def next(%MarketEvent{} = event, %IndicatorProcessor{} = processor_state) do
     %MarketEvent{data: event_data} = event
 
     %IndicatorProcessor{
