@@ -248,18 +248,6 @@ defmodule TheoryCraft.MarketSourceTest do
       end
     end
 
-    test "add_strategy supports multiple strategies with options", %{feed: feed} do
-      market =
-        %MarketSource{}
-        |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "xauusd")
-        |> MarketSource.add_strategy(MyStrategy, risk_level: :high)
-        |> MarketSource.add_strategy(AnotherStrategy, max_positions: 5, leverage: 2.0)
-
-      assert length(market.strategies) == 2
-      assert {MyStrategy, [risk_level: :high]} in market.strategies
-      assert {AnotherStrategy, [max_positions: 5, leverage: 2.0]} in market.strategies
-    end
-
     test "raises error when no data feed configured" do
       assert_raise ArgumentError, ~r/No data feed configured/, fn ->
         %MarketSource{}
@@ -334,8 +322,8 @@ defmodule TheoryCraft.MarketSourceTest do
 
       # Default name should be "data"
       assert market.data_streams == ["data"]
-      assert [{"data", {MemoryDataFeed, opts}}] = market.data_feeds
-      # :name is NOT in opts (it's stored as the keyword list key)
+      assert {"data", {MemoryDataFeed, opts}} = market.data_feed
+      # :name is NOT in opts (it's stored as the tuple key)
       assert Keyword.fetch!(opts, :from) == feed
       refute Keyword.has_key?(opts, :name)
     end
@@ -469,15 +457,15 @@ defmodule TheoryCraft.MarketSourceTest do
       end
     end
 
-    test "data_feeds tracks only initial sources", %{feed: feed} do
+    test "data_feed tracks only initial source", %{feed: feed} do
       market =
         %MarketSource{}
         |> MarketSource.add_data(MemoryDataFeed, from: feed, name: "XAUUSD")
         |> MarketSource.resample("m5")
         |> MarketSource.resample("h1")
 
-      # data_feeds should have only one feed
-      assert length(market.data_feeds) == 1
+      # data_feed should have the single feed
+      assert {"XAUUSD", {MemoryDataFeed, _opts}} = market.data_feed
     end
 
     test "data_streams tracks all data names", %{feed: feed} do

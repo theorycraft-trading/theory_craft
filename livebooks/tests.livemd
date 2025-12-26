@@ -222,16 +222,13 @@ TheoryCraft.Test.test()
 # )
 
 
-# %Strategy{}
+# %MarketSource{}
 # # |> add_data_from_csv("tick_xauusd.csv", name: "xauusd_ticks")
 # |> add_data("tick_xauusd.csv")
 # |> resample("m5")
 # |> resample("D", data: 0, name: "xauusd_daily")
 # |> add_indicator(TheoryCraft.Indicators.SMA, period: 14, data: "xauusd_daily", name: "sma_14")
 # |> add_indicator(TheoryCraft.Indicators.Supertrend, period: 14, name: "supertrend_14", data: 0)
-# |> add_strategy(TheoryCraft.Strategies.MyStrategy)
-# |> set_balance(100_000)
-# |> set_commission(0.001)
 ```
 
 <!-- livebook:{"attrs":"e30","chunks":[],"kind":"Elixir.KinoTheoryCraft.TheoryCraftCell","livebook_object":"smart_cell"} -->

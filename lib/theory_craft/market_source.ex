@@ -90,10 +90,6 @@ defmodule TheoryCraft.MarketSource do
   as downstream processors would receive incomplete data. For multiple resamples, use
   `aggregate_bars/2` after all resampling operations.
 
-  ## Limitations
-
-  - Currently supports one data feed at a time
-  - Strategy execution not yet implemented (placeholder: `add_strategy`)
   """
 
   alias __MODULE__
@@ -114,23 +110,18 @@ defmodule TheoryCraft.MarketSource do
   }
 
   defstruct [
-    # Data feeds as keyword list: [name: {module, opts}]
-    data_feeds: [],
-    # All data stream names (feeds + processor outputs)
+    # Data feed as tuple: {name, {module, opts}} or {name, enumerable}
+    data_feed: nil,
+    # All data stream names (feed + processor outputs)
     data_streams: [],
     # Building phase - store processor specs
-    processor_layers: [],
-    # Future features (placeholders)
-    strategies: []
+    processor_layers: []
   ]
 
-  @type strategy_spec :: {module(), Keyword.t()}
-
   @type t :: %MarketSource{
-          data_feeds: Keyword.t({module(), Keyword.t()}),
+          data_feed: {String.t(), {module(), Keyword.t()}} | {String.t(), Enumerable.t()} | nil,
           data_streams: [String.t()],
-          processor_layers: [[Processor.spec()]],
-          strategies: [strategy_spec()]
+          processor_layers: [[Processor.spec()]]
         }
 
   # require TheoryCraftTA.TA, as: TA
@@ -148,7 +139,6 @@ defmodule TheoryCraft.MarketSource do
   #     TA.rsi(XAUUSD_h1[:close], 14, name: "rsi_14")
   #   ], concurrency: 4)
   #   |> add_indicator(TA.sma(volume[:value], 14, name: "volume_sma_14"))
-  #   |> add_strategy(TheoryCraft.Strategies.MyStrategy)
   #   |> stream()
 
   # Enum.each(stream, fn event ->
@@ -203,9 +193,9 @@ defmodule TheoryCraft.MarketSource do
 
   def add_data(%MarketSource{} = market, data_feed_spec, opts)
       when is_atom(data_feed_spec) or is_tuple(data_feed_spec) do
-    %MarketSource{data_feeds: data_feeds, data_streams: data_streams} = market
+    %MarketSource{data_feed: data_feed, data_streams: data_streams} = market
 
-    if not Enum.empty?(data_feeds) do
+    if not is_nil(data_feed) do
       raise ArgumentError, "Currently only one data feed is supported"
     end
 
@@ -219,15 +209,15 @@ defmodule TheoryCraft.MarketSource do
 
     %MarketSource{
       market
-      | data_feeds: [{name, {data_feed_module, feed_opts}}],
+      | data_feed: {name, {data_feed_module, feed_opts}},
         data_streams: [name | data_streams]
     }
   end
 
   def add_data(%MarketSource{} = market, enumerable, opts) do
-    %MarketSource{data_feeds: data_feeds, data_streams: data_streams} = market
+    %MarketSource{data_feed: data_feed, data_streams: data_streams} = market
 
-    if not Enum.empty?(data_feeds) do
+    if not is_nil(data_feed) do
       raise ArgumentError, "Currently only one data feed is supported"
     end
 
@@ -236,7 +226,7 @@ defmodule TheoryCraft.MarketSource do
 
     %MarketSource{
       market
-      | data_feeds: [{name, enumerable}],
+      | data_feed: {name, enumerable},
         data_streams: [name | data_streams]
     }
   end
@@ -673,45 +663,6 @@ defmodule TheoryCraft.MarketSource do
   end
 
   @doc """
-  Adds a trading strategy to the market source.
-
-  Multiple strategies can be added to the market source. Each strategy can have its own
-  configuration options.
-
-  **Note**: Strategy execution is not yet implemented.
-
-  ## Parameters
-
-    - `market`: The market source.
-    - `strategy_module`: The strategy module to use.
-    - `opts`: Optional parameters for the strategy (default: `[]`).
-
-  ## Examples
-
-      # Add strategy without options
-      add_strategy(market, MyStrategy)
-
-      # Add strategy with options
-      add_strategy(market, MyStrategy, risk_level: :high, max_positions: 5)
-
-      # Add multiple strategies
-      market
-      |> add_strategy(Strategy1, param1: 100)
-      |> add_strategy(Strategy2, param2: 200)
-
-  """
-  @spec add_strategy(t(), module() | {module(), Keyword.t()}, Keyword.t()) :: t()
-  def add_strategy(%MarketSource{} = market, strategy_spec, opts \\ [])
-      when is_atom(strategy_spec) or is_tuple(strategy_spec) do
-    %MarketSource{strategies: strategies} = market
-    # When opts is provided, merge them with the spec opts
-    {strategy_module, spec_opts} = Utils.normalize_spec(strategy_spec)
-    strategy_opts = Keyword.merge(spec_opts, opts)
-
-    %MarketSource{market | strategies: [{strategy_module, strategy_opts} | strategies]}
-  end
-
-  @doc """
   Returns the list of data stream names in the order they were added.
 
   ## Examples
@@ -799,9 +750,9 @@ defmodule TheoryCraft.MarketSource do
   """
   @spec into_stages(t()) :: {GenStage.stage(), GenStage.stage()}
   def into_stages(%MarketSource{} = market) do
-    %MarketSource{data_feeds: data_feeds} = market
+    %MarketSource{data_feed: data_feed} = market
 
-    if data_feeds == [] do
+    if is_nil(data_feed) do
       raise ArgumentError,
             "No data feed configured. Use add_data/3 or add_data_ticks_from_csv/3 first."
     end
@@ -846,28 +797,24 @@ defmodule TheoryCraft.MarketSource do
     end
   end
 
-  # Fetches the default data name from data feeds
-  # Returns the name of the single data feed, or raises if none or multiple
-  defp fetch_default_data_name(%MarketSource{data_feeds: data_feeds}) do
-    case data_feeds do
-      [{name, _feed_spec}] ->
+  # Fetches the default data name from the data feed
+  # Returns the name of the data feed, or raises if none configured
+  defp fetch_default_data_name(%MarketSource{data_feed: data_feed}) do
+    case data_feed do
+      {name, _feed_spec} ->
         name
 
-      [] ->
-        raise ArgumentError, "No data feeds available"
-
-      _ ->
-        raise ArgumentError,
-              "Multiple data feeds found, please specify :data option explicitly"
+      nil ->
+        raise ArgumentError, "No data feed configured"
     end
   end
 
   # Materializes the GenStage pipeline from specs
   defp materialize_pipeline(%MarketSource{} = market) do
-    %MarketSource{data_feeds: data_feeds, processor_layers: processor_layers} = market
+    %MarketSource{data_feed: data_feed, processor_layers: processor_layers} = market
 
-    # Extract the single data feed source (can be {module, opts} or enumerable)
-    [{data_name, source}] = data_feeds
+    # Extract the data feed source (can be {module, opts} or enumerable)
+    {data_name, source} = data_feed
 
     # Start DataFeedStage producer with demand: :accumulate
     {:ok, data_feed_pid} = DataFeedStage.start_link(source, name: data_name)
