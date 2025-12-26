@@ -160,7 +160,7 @@ defmodule TheoryCraft.MarketSource.ProcessorStageTest do
 
       # Should receive events and verify next was called
       assert_receive {:events, events}, 100
-      assert length(events) > 0
+      refute Enum.empty?(events)
 
       # Verify next was called for each event
       assert_received {:next_called, _event, _state}

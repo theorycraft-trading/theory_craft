@@ -205,7 +205,7 @@ defmodule TheoryCraft.MarketSource do
       when is_atom(data_feed_spec) or is_tuple(data_feed_spec) do
     %MarketSource{data_feeds: data_feeds, data_streams: data_streams} = market
 
-    if length(data_feeds) > 0 do
+    if not Enum.empty?(data_feeds) do
       raise ArgumentError, "Currently only one data feed is supported"
     end
 
@@ -227,7 +227,7 @@ defmodule TheoryCraft.MarketSource do
   def add_data(%MarketSource{} = market, enumerable, opts) do
     %MarketSource{data_feeds: data_feeds, data_streams: data_streams} = market
 
-    if length(data_feeds) > 0 do
+    if not Enum.empty?(data_feeds) do
       raise ArgumentError, "Currently only one data feed is supported"
     end
 

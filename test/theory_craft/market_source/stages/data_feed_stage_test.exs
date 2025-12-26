@@ -146,7 +146,7 @@ defmodule TheoryCraft.MarketSource.DataFeedStageTest do
         GenStage.start_link(TestEventConsumer, test_pid: test_pid, subscribe_to: [producer])
 
       assert_receive {:events, events}, 1000
-      assert length(events) > 0
+      refute Enum.empty?(events)
 
       first_event = List.first(events)
       assert %MarketEvent{} = first_event

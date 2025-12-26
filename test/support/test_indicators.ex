@@ -68,9 +68,11 @@ defmodule TheoryCraft.TestIndicators do
       new_values = [close | values] |> Enum.take(period)
 
       # Calculate SMA
+      count = length(new_values)
+
       sma =
-        if length(new_values) > 0 do
-          Enum.sum(new_values) / length(new_values)
+        if count > 0 do
+          Enum.sum(new_values) / count
         else
           nil
         end
