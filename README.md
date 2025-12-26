@@ -10,7 +10,8 @@
 
 TheoryCraft provides a GenStage-based streaming architecture for processing market data through configurable processors and data feeds. Build complex trading strategies with multiple timeframes, technical indicators, and custom processors using a fluent, composable API.
 
-For tutorials and guides, see the [user documentation](https://theorycraft-trading.com/docs/).
+For tutorials and guides, see the user documentation:
+- https://theorycraft-trading.com/docs/
 
 ## ⚠️ Development Status
 
